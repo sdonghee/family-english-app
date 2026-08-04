@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>🎮 6인 가족 AI 영어 놀이터 - Lingo English App</title>
+  <title>🎮 6인 가족 AI 사람 영어 선생님 - Lingo Live</title>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#6c5ce7">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,7 +17,7 @@
     <!-- Header -->
     <header class="app-header">
       <div class="header-content">
-        <h1 class="logo">🎮 <span>Lingo</span> 가족 AI 영어 놀이터</h1>
+        <h1 class="logo">👩‍🏫 <span>Lingo</span> AI 사람 영어 선생님</h1>
         <div class="header-actions">
           <button id="settings-btn" class="icon-btn" title="클라우드 & API 설정">⚙️ 설정</button>
           <button id="reset-btn" class="reset-btn" title="데이터 새로고침">🔄</button>
@@ -31,19 +31,19 @@
       <section id="profile-section" class="screen active">
         <div class="banner-card">
           <div class="banner-text">
-            <h2>👋 환영합니다! 누구로 대화할까요?</h2>
-            <p>아빠, 엄마, 하율, 예율, 성율, 지율 맞춤형 AI Lingo 선생님이 24시간 언제나 영어 대화를 함께해요.</p>
+            <h2>👋 안녕하세요! 당신의 AI 영어 전담 선생님입니다.</h2>
+            <p>실제 사람처럼 표정과 목소리로 대화해요. 영어와 한글 모두 완벽히 통역해 드립니다.</p>
           </div>
-          <div class="banner-icon">🤖</div>
+          <div class="banner-icon">👩‍🏫</div>
         </div>
 
-        <h3 class="section-title">👨‍👩‍👧‍👦 우리 가족 프로필 선택 (6명)</h3>
+        <h3 class="section-title">👨‍👩‍👧‍👦 대화할 사람 선택 (6명)</h3>
         <div id="profile-grid" class="profile-grid">
-          <!-- Dynamically inserted 6 profile cards (하율, 예율, 성율, 지율) -->
+          <!-- Dynamically inserted 6 profile cards (하율, 예율, 성율, 지율, 아빠, 엄마) -->
         </div>
       </section>
 
-      <!-- 2. Chat Screen -->
+      <!-- 2. Interactive AI Human Teacher Screen -->
       <section id="chat-section" class="screen">
         <!-- Top Bar inside Chat -->
         <div class="chat-top-bar">
@@ -69,12 +69,20 @@
           </div>
         </div>
 
-        <!-- AI Character Header (Lingo Avatar) -->
-        <div class="character-header">
-          <div id="lingo-avatar" class="lingo-avatar idle">
-            <span id="lingo-emoji" class="lingo-emoji">🐶</span>
+        <!-- REALISTIC AI HUMAN TEACHER VIDEO STAGE -->
+        <div class="ai-human-stage">
+          <div id="ai-teacher-avatar" class="ai-teacher-avatar idle">
+            <!-- Animated AI Human Teacher Face -->
+            <div class="teacher-face">
+              <div class="teacher-eyes">
+                <div class="eye left"></div>
+                <div class="eye right"></div>
+              </div>
+              <div id="teacher-mouth" class="teacher-mouth idle"></div>
+            </div>
+            <div class="video-badge">🔴 Live AI Teacher</div>
           </div>
-          <div id="lingo-status-tag" class="lingo-status-tag">Lingo 선생님과 영어 수다 떨기!</div>
+          <div id="lingo-status-tag" class="lingo-status-tag">👩‍🏫 말씀해 주세요, 듣고 있어요!</div>
         </div>
 
         <!-- Messages Area -->
@@ -87,9 +95,13 @@
           <!-- Dynamic chips -->
         </div>
 
-        <!-- Input Bar -->
+        <!-- Voice Conversation & Text Input Bar -->
         <div class="chat-input-bar">
-          <input type="text" id="chat-input" placeholder="영어 문장을 입력해 보세요..." autocomplete="off" />
+          <button id="mic-btn" class="mic-btn" title="음성 대화 시작 (클릭하고 말하세요)">
+            <span id="mic-icon">🎤</span>
+            <span id="mic-label">말하기</span>
+          </button>
+          <input type="text" id="chat-input" placeholder="음성으로 말하거나 여기에 입력하세요..." autocomplete="off" />
           <button id="send-btn" class="send-btn">
             <span>전송</span> 🚀
           </button>

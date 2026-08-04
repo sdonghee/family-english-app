@@ -57,7 +57,7 @@ body {
 }
 
 .logo {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 800;
   color: var(--text-dark);
 }
@@ -128,7 +128,7 @@ body {
 }
 
 .banner-text h2 {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 800;
   margin-bottom: 6px;
 }
@@ -299,60 +299,118 @@ body {
   margin-top: 6px;
 }
 
-.character-header {
+/* REALISTIC AI HUMAN TEACHER VIDEO STAGE */
+.ai-human-stage {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 8px 16px;
+  padding: 12px 16px 6px 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f0f4f8 100%);
 }
 
-.lingo-avatar {
-  width: 68px;
-  height: 68px;
+.ai-teacher-avatar {
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
+  background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+  box-shadow: var(--shadow-md);
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 36px;
-  box-shadow: var(--shadow-md);
+  border: 4px solid white;
   transition: all 0.3s ease;
 }
 
-.lingo-avatar.thinking {
-  animation: pulse 1s infinite alternate;
-  background: linear-gradient(135deg, var(--accent-gold), #ffeaa7);
+.teacher-face {
+  width: 50px;
+  height: 50px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 
-.lingo-avatar.speaking {
-  background: linear-gradient(135deg, var(--accent-green), #55efc4);
+.teacher-eyes {
+  display: flex;
+  gap: 16px;
 }
 
-.lingo-avatar.cheering {
-  animation: bounce 0.6s infinite alternate;
-  background: linear-gradient(135deg, var(--accent-pink), #ff7675);
+.eye {
+  width: 10px;
+  height: 10px;
+  background: white;
+  border-radius: 50%;
+  animation: blink 4s infinite;
 }
 
-@keyframes pulse {
-  0% { transform: scale(0.95); }
-  100% { transform: scale(1.06); }
+@keyframes blink {
+  0%, 96%, 100% { transform: scaleY(1); }
+  98% { transform: scaleY(0.1); }
 }
 
-@keyframes bounce {
-  0% { transform: translateY(0); }
-  100% { transform: translateY(-8px); }
+.teacher-mouth {
+  width: 20px;
+  height: 6px;
+  background: white;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.teacher-mouth.speaking {
+  animation: talkMouth 0.25s infinite alternate;
+  background: #ff7675;
+}
+
+.teacher-mouth.thinking {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent-gold);
+  animation: pulseMouth 0.8s infinite alternate;
+}
+
+.teacher-mouth.cheering {
+  width: 26px;
+  height: 12px;
+  border-radius: 0 0 14px 14px;
+  background: #ff7675;
+}
+
+@keyframes talkMouth {
+  0% { height: 4px; width: 18px; }
+  100% { height: 12px; width: 22px; border-radius: 8px; }
+}
+
+@keyframes pulseMouth {
+  0% { transform: scale(0.8); }
+  100% { transform: scale(1.3); }
+}
+
+.video-badge {
+  position: absolute;
+  bottom: -6px;
+  background: #ff7675;
+  color: white;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(255, 118, 117, 0.4);
 }
 
 .lingo-status-tag {
-  margin-top: 6px;
+  margin-top: 12px;
   background: rgba(108, 92, 231, 0.1);
   color: var(--primary-color);
-  padding: 3px 12px;
-  border-radius: 12px;
-  font-size: 11px;
+  padding: 4px 14px;
+  border-radius: 14px;
+  font-size: 12px;
   font-weight: 700;
 }
 
+/* Messages List */
 .chat-messages {
   flex: 1;
   padding: 12px 16px;
@@ -474,21 +532,49 @@ body {
   color: white;
 }
 
+/* Voice Conversation & Text Input Bar */
 .chat-input-bar {
   background: white;
-  padding: 12px 16px;
+  padding: 10px 14px;
   display: flex;
   gap: 8px;
+  align-items: center;
   border-top: 1px solid #e2e8f0;
+}
+
+.mic-btn {
+  background: #ff7675;
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 18px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 4px 10px rgba(255, 118, 117, 0.3);
+  transition: all 0.2s ease;
+}
+
+.mic-btn.listening {
+  background: #e84393;
+  animation: pulseMic 0.8s infinite alternate;
+}
+
+@keyframes pulseMic {
+  0% { transform: scale(0.96); }
+  100% { transform: scale(1.08); }
 }
 
 .chat-input-bar input {
   flex: 1;
   background: #f1f2f6;
   border: 1px solid transparent;
-  padding: 12px 16px;
+  padding: 10px 14px;
   border-radius: 20px;
-  font-size: 14px;
+  font-size: 13px;
   outline: none;
 }
 
@@ -501,9 +587,10 @@ body {
   background: var(--primary-color);
   color: white;
   border: none;
-  padding: 0 16px;
-  border-radius: 20px;
-  font-size: 14px;
+  padding: 0 14px;
+  height: 38px;
+  border-radius: 18px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
   transition: background 0.2s ease;

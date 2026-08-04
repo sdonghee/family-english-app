@@ -1,4 +1,4 @@
-// 6인 가족 데이터 (하율 & 예율 쌍둥이 만 9세 5월생, 성율 만 6세 9월생, 지율 만 4세 12월생)
+// 6인 가족 프로필 (하율/예율 쌍둥이 만9세, 성율 만6세, 지율 만4세)
 const DEFAULT_PROFILES = [
   {
     id: 'p_dad',
@@ -90,6 +90,8 @@ let profiles = [];
 let activeProfile = null;
 let chatHistories = {};
 let userGeminiApiKey = '';
+let isListening = false;
+let recognition = null;
 
 const profileSection = document.getElementById('profile-section');
 const chatSection = document.getElementById('chat-section');
@@ -104,14 +106,16 @@ const progressBarFill = document.getElementById('progress-bar-fill');
 const nextLevelXpText = document.getElementById('next-level-xp-text');
 const badgeCountText = document.getElementById('badge-count-text');
 
-const lingoAvatar = document.getElementById('lingo-avatar');
-const lingoEmoji = document.getElementById('lingo-emoji');
+const teacherMouth = document.getElementById('teacher-mouth');
 const lingoStatusTag = document.getElementById('lingo-status-tag');
 
 const chatMessages = document.getElementById('chat-messages');
 const quickChipsContainer = document.getElementById('quick-chips-container');
 const chatInput = document.getElementById('chat-input');
 const sendBtn = document.getElementById('send-btn');
+const micBtn = document.getElementById('mic-btn');
+const micIcon = document.getElementById('mic-icon');
+const micLabel = document.getElementById('mic-label');
 const resetBtn = document.getElementById('reset-btn');
 const settingsBtn = document.getElementById('settings-btn');
 
@@ -127,11 +131,12 @@ const closeSettingsBtn = document.getElementById('close-settings-btn');
 function initApp() {
   loadStoredData();
   renderProfiles();
+  setupSpeechRecognition();
   setupEventListeners();
 }
 
 function loadStoredData() {
-  const savedProfiles = localStorage.getItem('lingo_profiles_v3');
+  const savedProfiles = localStorage.getItem('lingo_profiles_v4');
   if (savedProfiles) {
     profiles = JSON.parse(savedProfiles);
   } else {
@@ -139,7 +144,7 @@ function loadStoredData() {
     saveProfiles();
   }
 
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v3');
+  const savedHistories = localStorage.getItem('lingo_chat_histories_v4');
   if (savedHistories) {
     chatHistories = JSON.parse(savedHistories);
   }
@@ -149,11 +154,11 @@ function loadStoredData() {
 }
 
 function saveProfiles() {
-  localStorage.setItem('lingo_profiles_v3', JSON.stringify(profiles));
+  localStorage.setItem('lingo_profiles_v4', JSON.stringify(profiles));
 }
 
 function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v3', JSON.stringify(chatHistories));
+  localStorage.setItem('lingo_chat_histories_v4', JSON.stringify(chatHistories));
 }
 
 function renderProfiles() {
@@ -202,27 +207,29 @@ function selectProfile(id) {
 
   profileSection.classList.remove('active');
   chatSection.classList.add('active');
+
+  speakText(chatHistories[id][0].content);
 }
 
 function getWelcomeMessage(profile) {
   const shortName = profile.name.split(' ')[1] || profile.name;
   if (profile.age <= 5) {
-    return `Hello ${shortName}! 🌟 I am Lingo! What animal do you like? 🐶`;
+    return `Hello ${shortName}! 🌟 I am your AI English teacher Lingo! What animal do you like? 🐶`;
   } else if (profile.age <= 9) {
-    return `Hey ${shortName}! Ready to practice some fun English today? 🎮`;
+    return `Hey ${shortName}! I am your AI teacher. Ready to practice fun English today? 🎮`;
   } else {
-    return `Hello ${profile.name}! Nice to meet you. How was your day? ✨`;
+    return `Hello ${profile.name}! I am your bilingual AI teacher. How can I help your English today? ✨`;
   }
 }
 
 function getWelcomeTranslation(profile) {
   const shortName = profile.name.split(' ')[1] || profile.name;
   if (profile.age <= 5) {
-    return `안녕 ${shortName}! 🌟 나는 Lingo야! 어떤 동물을 좋아하니? 🐶`;
+    return `안녕 ${shortName}! 🌟 나는 너의 AI 영어 선생님 Lingo야! 어떤 동물을 좋아하니? 🐶`;
   } else if (profile.age <= 9) {
-    return `안녕 ${shortName}! 오늘 재미있는 영어 대화를 시작해볼까? 🎮`;
+    return `안녕 ${shortName}! 나는 너의 AI 선생님이야. 오늘 재미있는 영어 대화를 시작해볼까? 🎮`;
   } else {
-    return `안녕하세요 ${profile.name}님! 반가워요. 오늘 하루 어떻게 보내셨나요? ✨`;
+    return `안녕하세요 ${profile.name}님! 저는 한국어와 영어가 완벽한 AI 선생님입니다. 오늘 어떤 대화를 나눠볼까요? ✨`;
   }
 }
 
@@ -253,7 +260,7 @@ function renderMessages() {
 
     const avatar = document.createElement('div');
     avatar.className = 'msg-avatar';
-    avatar.innerText = msg.sender === 'user' ? activeProfile.avatarIcon : '🤖';
+    avatar.innerText = msg.sender === 'user' ? activeProfile.avatarIcon : '👩‍🏫';
 
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
@@ -292,14 +299,81 @@ function toggleTranslation(id) {
   }
 }
 
+// REALTIME SPEECH SYNTHESIS & VOICE AUDIO (TTS)
 function speakText(text) {
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-US';
     utterance.rate = activeProfile && activeProfile.age <= 5 ? 0.8 : 0.95;
+
+    utterance.onstart = () => {
+      updateTeacherFaceState('speaking', '👩‍🏫 AI 선생님이 원어민 목소리로 말하고 있어요!');
+    };
+
+    utterance.onend = () => {
+      updateTeacherFaceState('idle', '👩‍🏫 말씀해 주세요, 듣고 있어요!');
+    };
+
     window.speechSynthesis.speak(utterance);
   }
+}
+
+// REALTIME SPEECH RECOGNITION (STT - 🎤 음성 대화)
+function setupSpeechRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    console.warn("Speech Recognition API non-supported in this browser");
+    return;
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.lang = 'en-US'; // 영어/한국어 자동 감지
+
+  recognition.onstart = () => {
+    isListening = true;
+    micBtn.classList.add('listening');
+    micLabel.innerText = "듣는 중...";
+    lingoStatusTag.innerText = "🎤 목소리를 듣고 있어요! 편하게 말씀하세요...";
+  };
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    chatInput.value = transcript;
+    handleSendMessage();
+  };
+
+  recognition.onerror = (e) => {
+    console.warn("Speech recognition error", e);
+    stopListening();
+  };
+
+  recognition.onend = () => {
+    stopListening();
+  };
+}
+
+function toggleListening() {
+  if (!recognition) {
+    alert("이 브라우저에서는 마이크 음성 인식이 지원되지 않습니다. 키보드로 입력해 보세요!");
+    return;
+  }
+
+  if (isListening) {
+    recognition.stop();
+    stopListening();
+  } else {
+    recognition.start();
+  }
+}
+
+function stopListening() {
+  isListening = false;
+  micBtn.classList.remove('listening');
+  micLabel.innerText = "말하기";
+  lingoStatusTag.innerText = "👩‍🏫 말씀해 주세요, 듣고 있어요!";
 }
 
 function renderQuickChips() {
@@ -314,7 +388,7 @@ function renderQuickChips() {
   } else if (activeProfile.age <= 9) {
     chips = ["I love drawing pictures! 🎨", "I like playing games! 🎮", "Singing is fun! 🎵"];
   } else {
-    chips = ["I had a busy day at work.", "I want to travel soon.", "Can you correct my grammar?"];
+    chips = ["I had a busy day at work.", "I want to travel soon.", "이 표현은 영어로 어떻게 말하나요?"];
   }
 
   chips.forEach(text => {
@@ -345,12 +419,11 @@ async function handleSendMessage() {
   saveHistories();
   renderMessages();
 
-  updateLingoState('thinking', '🤔', 'Lingo가 생각 중이에요...');
+  updateTeacherFaceState('thinking', '🤔 AI 선생님이 자연스러운 대화를 생각하고 있어요...');
 
   const xpEarned = text.split(' ').length >= 4 ? 30 : 20;
   const didLevelUp = addXpToActiveProfile(xpEarned);
 
-  // Gemini API Key가 저장되어 있으면 직접 실시간 Gemini 1.5 Flash API 호출
   if (userGeminiApiKey && userGeminiApiKey.trim().length > 10) {
     try {
       const resp = await fetchRealGeminiResponse(activeProfile, text);
@@ -361,7 +434,6 @@ async function handleSendMessage() {
     }
   }
 
-  // API Key 미설정 시 지능형 로컬 스마트 응답
   setTimeout(() => {
     const aiResponse = generateAiResponse(activeProfile, text);
     handleAiResponseReceived(aiResponse, didLevelUp);
@@ -382,21 +454,20 @@ function handleAiResponseReceived(aiResponse, didLevelUp) {
   renderMessages();
 
   if (didLevelUp) {
-    updateLingoState('cheering', '🎉', '참 잘했어요! 레벨 업!');
+    updateTeacherFaceState('cheering', '🎉 참 잘했어요! 레벨 업!');
     showLevelUpModal(activeProfile.level);
   } else {
-    updateLingoState('speaking', '😃', 'Lingo가 말하고 있어요!');
     speakText(aiResponse.reply);
-    setTimeout(() => updateLingoState('idle', '🐶', 'Lingo 선생님과 대화 중!'), 3000);
   }
 }
 
-// 실시간 Gemini 1.5 Flash API 호출 함수 (100% 무료)
 async function fetchRealGeminiResponse(profile, userText) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${userGeminiApiKey}`;
   
-  const systemPrompt = `You are Lingo, a friendly AI English teacher for ${profile.name} (Age: ${profile.age}).
-${profile.age <= 5 ? 'Use max 3-5 simple words and praise.' : profile.age <= 9 ? 'Use 5-8 fun words and praise.' : 'Provide natural conversation and polite grammar hints.'}
+  const systemPrompt = `You are a human-like, warm, highly fluent bilingual AI English & Korean Master Tutor for ${profile.name} (Age: ${profile.age}).
+- If user speaks Korean, translate naturally to native English and explain gently.
+- If user makes grammar errors, correct them naturally and encourage them.
+${profile.age <= 5 ? '- Use max 3-5 simple words and high praise.' : profile.age <= 9 ? '- Use 5-8 fun engaging words.' : '- Offer idiom suggestions and practical conversations.'}
 Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammarHint": "..."}`;
 
   const bodyData = {
@@ -417,9 +488,8 @@ Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammar
   return JSON.parse(jsonText);
 }
 
-function updateLingoState(stateClass, emoji, statusText) {
-  lingoAvatar.className = `lingo-avatar ${stateClass}`;
-  lingoEmoji.innerText = emoji;
+function updateTeacherFaceState(state, statusText) {
+  teacherMouth.className = `teacher-mouth ${state}`;
   lingoStatusTag.innerText = statusText;
 }
 
@@ -446,35 +516,35 @@ function generateAiResponse(profile, userText) {
   const shortName = profile.name.split(' ')[1] || profile.name;
 
   if (profile.age <= 5) {
-    if (lower.includes('hello') || lower.includes('hi')) {
+    if (lower.includes('hello') || lower.includes('hi') || lower.includes('안녕')) {
       return {
         reply: `Hi ${shortName}! Great job! 🌟`,
-        translation: `안녕 ${shortName}! 참 잘했어! 🌟`,
-        grammarHint: "Tip: 'Hi!' 하고 인사를 건네봐요!"
+        translation: `안녕 ${shortName}! 반가워, 참 잘했어! 🌟`,
+        grammarHint: "Tip: 'Hi teacher!' 하고 인사해보세요!"
       };
     } else {
       return {
         reply: `Cute sentence, ${shortName}! 🎈`,
-        translation: `귀여운 표현이야, ${shortName}! 🎈`,
+        translation: `정말 귀여운 표현이야, ${shortName}! 🎈`,
         grammarHint: null
       };
     }
   } else if (profile.age <= 7) {
-    if (lower.includes('dinosaur') || lower.includes('robot')) {
+    if (lower.includes('dinosaur') || lower.includes('robot') || lower.includes('공룡')) {
       return {
-        reply: `Dinosaur and robot are super cool, ${shortName}! 🦖`,
-        translation: `공룡이랑 로봇은 정말 멋져, ${shortName}! 🦖`,
+        reply: `Dinosaurs and robots are super cool, ${shortName}! 🦖`,
+        translation: `공룡이랑 로봇은 정말 멋진 주제야, ${shortName}! 🦖`,
         grammarHint: null
       };
     } else {
       return {
         reply: `Awesome job, ${shortName}! What else do you like?`,
-        translation: `참 잘했어, ${shortName}! 또 어떤 걸 좋아하니?`,
-        grammarHint: "Tip: 'What else do you like?'는 '또 뭘 좋아해?'라는 뜻이에요."
+        translation: `참 잘했어, ${shortName}! 또 어떤 것을 이야기하고 싶니?`,
+        grammarHint: "Tip: 'What else do you like?'는 '또 뭘 좋아해?'라는 영단어 표현입니다."
       };
     }
   } else if (profile.age <= 9) {
-    if (lower.includes('draw') || lower.includes('picture') || lower.includes('game')) {
+    if (lower.includes('draw') || lower.includes('picture') || lower.includes('game') || lower.includes('그림')) {
       return {
         reply: `That sounds like so much fun, ${shortName}! 🎨`,
         translation: `정말 재미있겠는걸, ${shortName}! 🎨`,
@@ -483,14 +553,14 @@ function generateAiResponse(profile, userText) {
     } else {
       return {
         reply: `Great English expression, ${shortName}! Keep it up! ✨`,
-        translation: `훌륭한 영어 표현이야, ${shortName}! 지금처럼 계속 해봐! ✨`,
-        grammarHint: "Tip: 'Keep it up!'은 '계속 파이팅해!'라는 표현입니다."
+        translation: `훌륭한 영어 표현이야, ${shortName}! 지금처럼 자연스럽게 대화해봐! ✨`,
+        grammarHint: "Tip: 'Keep it up!'은 '지금처럼 화이팅해!'라는 표현입니다."
       };
     }
   } else {
     return {
-      reply: "That's a very natural expression. I enjoy chatting with you!",
-      translation: "아주 자연스러운 표현이에요. 당신과 대화하는 것이 즐겁습니다!",
+      reply: "That is a very natural expression. I am happy to guide your English anytime!",
+      translation: "아주 자연스러운 표현이에요. 궁금하거나 필요한 영단어가 있다면 언제든 한글로 물어보세요!",
       grammarHint: null
     };
   }
@@ -509,6 +579,8 @@ function setupEventListeners() {
   });
 
   sendBtn.addEventListener('click', handleSendMessage);
+  micBtn.addEventListener('click', toggleListening);
+
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') handleSendMessage();
   });
@@ -534,8 +606,8 @@ function setupEventListeners() {
 
   resetBtn.addEventListener('click', () => {
     if (confirm('프로필과 대화 기록을 초기화하시겠습니까?')) {
-      localStorage.removeItem('lingo_profiles_v3');
-      localStorage.removeItem('lingo_chat_histories_v3');
+      localStorage.removeItem('lingo_profiles_v4');
+      localStorage.removeItem('lingo_chat_histories_v4');
       profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
       chatHistories = {};
       saveProfiles();
