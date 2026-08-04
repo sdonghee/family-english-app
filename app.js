@@ -122,51 +122,40 @@ function stopTalkingAvatarLoop() {
   setAvatarState('idle');
 }
 
+let naturalEnVoice = null;
+let naturalKrVoice = null;
+
 function loadNaturalVoices() {
   if ('speechSynthesis' in window) {
     const updateVoices = () => {
       const allVoices = window.speechSynthesis.getVoices();
       const enVoices = allVoices.filter(v => v.lang.startsWith('en'));
+      const krVoices = allVoices.filter(v => v.lang.startsWith('ko'));
       
-      // 우선순위별 자연스러운 여성 목소리 선택
-      const priorityNames = [
-        'Google US English',       // Chrome 고품질
-        'Google UK English Female',
-        'Samantha',                // macOS/iOS 고품질
-        'Karen',                   // macOS 호주 영어
-        'Moira',                   // macOS 아일랜드
-        'Tessa',                   // macOS 남아공
-        'Microsoft Aria',          // Windows 11 자연음성
-        'Microsoft Jenny',         // Windows 11
-        'Microsoft Zira',          // Windows
-      ];
-      
-      // Natural/Neural 키워드가 있는 여성 목소리 최우선
-      const neuralVoice = enVoices.find(v => 
-        (v.name.includes('Natural') || v.name.includes('Neural')) && 
-        !v.name.includes('Male') && !v.name.includes('Guy')
-      );
-      
-      if (neuralVoice) {
-        naturalVoices = [neuralVoice];
-        console.log('🎙️ Selected neural voice:', neuralVoice.name);
-        return;
-      }
-      
-      // 우선순위 목록에서 찾기
-      for (const name of priorityNames) {
-        const match = enVoices.find(v => v.name.includes(name));
-        if (match) {
-          naturalVoices = [match];
-          console.log('🎙️ Selected voice:', match.name);
-          return;
+      // 1. 영어 여성 음성 우선순위
+      const enPriority = ['Google US English', 'Google UK English Female', 'Samantha', 'Microsoft Aria', 'Microsoft Jenny', 'Karen'];
+      let foundEn = enVoices.find(v => (v.name.includes('Natural') || v.name.includes('Neural')) && !v.name.includes('Male'));
+      if (!foundEn) {
+        for (const name of enPriority) {
+          foundEn = enVoices.find(v => v.name.includes(name));
+          if (foundEn) break;
         }
       }
-      
-      // 그래도 없으면 아무 영어 여성 음성
-      naturalVoices = enVoices.filter(v => !v.name.includes('Male') && !v.name.includes('Guy'));
-      if (naturalVoices.length === 0) naturalVoices = enVoices;
-      console.log('🎙️ Fallback voice:', naturalVoices[0]?.name);
+      naturalEnVoice = foundEn || enVoices.find(v => !v.name.includes('Male')) || enVoices[0];
+
+      // 2. 한국어 여성 음성 우선순위
+      const krPriority = ['Google 한국어', 'Heami', 'Sun-Hi', 'Microsoft SunHi', 'Microsoft Heami', 'Yuna'];
+      let foundKr = krVoices.find(v => v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural'));
+      if (!foundKr) {
+        for (const name of krPriority) {
+          foundKr = krVoices.find(v => v.name.includes(name));
+          if (foundKr) break;
+        }
+      }
+      naturalKrVoice = foundKr || krVoices[0];
+
+      console.log('🎙️ Selected En Voice:', naturalEnVoice?.name);
+      console.log('🎙️ Selected Kr Voice:', naturalKrVoice?.name);
     };
 
     updateVoices();
@@ -335,38 +324,48 @@ function toggleTranslation(id) {
   }
 }
 
-function cleanTextForSpeech(text) {
-  if (!text) return "";
-  // 이모지만 제거, 한국어는 유지
+function splitTextIntoBilingualChunks(text) {
+  if (!text) return [];
+  // 이모지 및 마크다운 제거
   let clean = text.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{20E3}]/gu, '');
-  clean = clean.replace(/\[.*?\]/g, '');
-  clean = clean.replace(/[*_#`~]/g, '');
-  // 한국어 부분은 TTS에서 건너뛰기 (영어만 읽기)
-  clean = clean.replace(/[\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF]+[^\s]*/g, '').replace(/\s+/g, ' ');
-  return clean.trim();
+  clean = clean.replace(/\[.*?\]/g, '').replace(/[*_#`~]/g, '').trim();
+
+  // 한국어와 영어 구간 분리 정규식
+  const regex = /([\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF\s,.~!?]+)|([A-Za-z0-9\s,.~!?'"-]+)/g;
+  const chunks = [];
+  let match;
+
+  while ((match = regex.exec(clean)) !== null) {
+    const krText = match[1] ? match[1].trim() : '';
+    const enText = match[2] ? match[2].trim() : '';
+
+    if (krText && krText.length > 0) {
+      chunks.push({ text: krText, lang: 'ko-KR' });
+    }
+    if (enText && enText.length > 0) {
+      chunks.push({ text: enText, lang: 'en-US' });
+    }
+  }
+
+  return chunks;
 }
 
 function speakText(text) {
   if (!('speechSynthesis' in window)) return;
   
   window.speechSynthesis.cancel();
-  
-  const cleanSpeech = cleanTextForSpeech(text);
-  if (!cleanSpeech || cleanSpeech.length < 2) {
-    console.warn('No speakable text after cleaning:', text);
-    return;
-  }
 
-  const chunks = cleanSpeech.match(/[^.!?]+[.!?]+/g) || [cleanSpeech];
+  const chunks = splitTextIntoBilingualChunks(text);
+  if (chunks.length === 0) return;
 
   if (aiHumanStage) aiHumanStage.classList.add('speaking');
   startTalkingAvatarLoop();
 
-  if (lingoStatusTag) lingoStatusTag.innerText = "🗣️ Chloe 선생님이 말하는 중...";
+  if (lingoStatusTag) lingoStatusTag.innerText = "🗣️ Chloe 선생님이 한국어와 영어로 말하는 중...";
 
   let currentIdx = 0;
 
-  // Chrome TTS 버그 해결: 15초 이상 발화 시 멈추는 문제
+  // Chrome TTS 멈춤 방지 패치
   let resumeTimer = setInterval(() => {
     if (window.speechSynthesis.speaking) {
       window.speechSynthesis.pause();
@@ -383,27 +382,34 @@ function speakText(text) {
       return;
     }
 
-    const chunkText = chunks[currentIdx].trim();
+    const chunk = chunks[currentIdx];
     currentIdx++;
 
-    if (!chunkText) {
+    if (!chunk || !chunk.text) {
       playNextChunk();
       return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(chunkText);
-    if (naturalVoices.length > 0) utterance.voice = naturalVoices[0];
-    utterance.lang = 'en-US';
-
-    utterance.rate = 0.92;
-    utterance.pitch = chunkText.endsWith('?') ? 1.12 : 1.04;
+    const utterance = new SpeechSynthesisUtterance(chunk.text);
+    
+    if (chunk.lang === 'ko-KR') {
+      utterance.lang = 'ko-KR';
+      if (naturalKrVoice) utterance.voice = naturalKrVoice;
+      utterance.rate = 1.0;
+      utterance.pitch = 1.05;
+    } else {
+      utterance.lang = 'en-US';
+      if (naturalEnVoice) utterance.voice = naturalEnVoice;
+      utterance.rate = 0.92;
+      utterance.pitch = chunk.text.endsWith('?') ? 1.12 : 1.04;
+    }
 
     utterance.onend = () => {
-      setTimeout(playNextChunk, 150);
+      setTimeout(playNextChunk, 100);
     };
 
     utterance.onerror = (e) => {
-      console.error('TTS error:', e);
+      console.error('Bilingual TTS error:', e);
       playNextChunk();
     };
 
