@@ -416,7 +416,14 @@ function speakText(text) {
       clearInterval(resumeTimer);
       if (aiHumanStage) aiHumanStage.classList.remove('speaking');
       stopTalkingAvatarLoop();
-      if (lingoStatusTag) lingoStatusTag.innerText = "👩‍🏫 마이크를 누르고 편하게 말씀해 주세요!";
+      if (lingoStatusTag) lingoStatusTag.innerText = "🎤 경청 중... 말씀을 마치시면 Chloe 선생님이 대답합니다.";
+      
+      // 🎧 핸즈프리 화상 통화: 선생님 말이 끝나면 0.6초 후 마이크 자동 활성화
+      setTimeout(() => {
+        if (!isListening) {
+          startListening();
+        }
+      }, 600);
       return;
     }
 
@@ -667,6 +674,22 @@ function handleAiResponseReceived(aiResponse, userText) {
   chatHistories[activeProfile.id].push(aiMsg);
   saveHistories();
   renderMessages();
+
+  // 🎴 자동 어휘 저장: 교정된 원어민 추천 표현이 있으면 단어장에 자동 수집
+  if (aiResponse.nativeUpgrade && aiResponse.nativeUpgrade.length > 3) {
+    const exists = userFlashcards.some(card => card.native === aiResponse.nativeUpgrade);
+    if (!exists) {
+      userFlashcards.unshift({
+        id: 'fc_' + Date.now(),
+        original: userText,
+        native: aiResponse.nativeUpgrade,
+        advanced: aiResponse.advancedUpgrade || '',
+        date: new Date().toLocaleDateString('ko-KR')
+      });
+      if (userFlashcards.length > 50) userFlashcards.pop(); // 최신 50개 유지
+      saveFlashcards();
+    }
+  }
 
   updateVideoOverlaySubtitles(aiResponse.reply, aiResponse.translation);
   speakText(aiResponse.reply);
