@@ -648,34 +648,38 @@ function setupSpeechRecognition() {
 
   recognition.onresult = (event) => {
     let interim = '';
-    let finalChunk = '';
+    let hasNewFinal = false;
 
     for (let i = event.resultIndex; i < event.results.length; ++i) {
+      const transcriptChunk = event.results[i][0].transcript;
       if (event.results[i].isFinal) {
-        finalChunk += event.results[i][0].transcript;
+        accumulatedTranscript += (accumulatedTranscript ? ' ' : '') + transcriptChunk;
+        hasNewFinal = true;
       } else {
-        interim += event.results[i][0].transcript;
+        interim += transcriptChunk;
       }
     }
 
-    if (finalChunk) {
-      accumulatedTranscript += (accumulatedTranscript ? ' ' : '') + finalChunk;
+    // 화면 입력창에는 실시간으로 말하는 내용 표시
+    const displayText = accumulatedTranscript + (interim ? ' ' + interim : '');
+    if (chatInput) chatInput.value = displayText;
+
+    // 🛑 중요: 완벽히 확정된 문장(hasNewFinal)이 들어왔을 때만 전송 타이머 작동!
+    // 사용자가 말하는 중간의 불확실한 임시 텍스트(interim) 때문에 앞 단어가 싹 잘려서 들어가는 현상 완전 차단.
+    if (hasNewFinal || accumulatedTranscript.trim().length > 0) {
+      if (speechPauseTimer) clearTimeout(speechPauseTimer);
+
+      speechPauseTimer = setTimeout(() => {
+        const textToSend = accumulatedTranscript.trim() || (chatInput ? chatInput.value.trim() : '');
+        
+        // 헛소리/잡음 1단어(예: "A", "The", "Um") 잘림 방지: 최소 3글자 이상 의미있는 완성문장일 때만 전송
+        if (textToSend.length >= 3 && !window.speechSynthesis.speaking) {
+          console.log("🎤 Final sentence ready to send:", textToSend);
+          stopListening();
+          handleSendMessage();
+        }
+      }, 1800);
     }
-
-    const currentText = accumulatedTranscript + (interim ? ' ' + interim : '');
-    if (chatInput) chatInput.value = currentText;
-
-    if (speechPauseTimer) clearTimeout(speechPauseTimer);
-
-    // 🛑 성급하게 잘리지 않도록 넉넉하게 대기! (말이 완성되고 문장이 완전히 끝난 뒤 2.4초 쉼이 있을 때 전송)
-    speechPauseTimer = setTimeout(() => {
-      const fullText = chatInput ? chatInput.value.trim() : '';
-      if (fullText.length > 0) {
-        // 단어가 최소 1글자 이상 완전할 때 전송
-        stopListening();
-        handleSendMessage();
-      }
-    }, 2400);
   };
 
   recognition.onerror = (e) => {
@@ -789,6 +793,7 @@ async function handleSendMessage() {
   if (!text || !activeProfile) return;
 
   chatInput.value = '';
+  accumulatedTranscript = '';
 
   const userMsg = {
     sender: 'user',
