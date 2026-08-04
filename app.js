@@ -29,7 +29,6 @@ let naturalVoices = [];
 let speechPauseTimer = null;
 let accumulatedTranscript = '';
 let conversationTurnCount = 0;
-let lipSyncAnimFrame = null;
 let isSpeakingAnim = false;
 let recentRepliesBuffer = [];
 
@@ -45,7 +44,7 @@ const lingoStatusTag = document.getElementById('lingo-status-tag');
 const speechEnText = document.getElementById('speech-en-text');
 const speechKrSub = document.getElementById('speech-kr-sub');
 const hintToggleBtn = document.getElementById('hint-toggle-btn');
-const lipSyncCanvas = document.getElementById('lip-sync-canvas');
+const speakingIndicator = document.getElementById('speaking-indicator');
 
 const chatMessages = document.getElementById('chat-messages');
 const quickChipsContainer = document.getElementById('quick-chips-container');
@@ -77,63 +76,21 @@ function initApp() {
   setupSpeechRecognition();
   loadNaturalVoices();
   setupEventListeners();
-  initLipSyncCanvas();
-}
-
-function initLipSyncCanvas() {
-  if (!lipSyncCanvas) return;
-  lipSyncCanvas.width = lipSyncCanvas.offsetWidth || 340;
-  lipSyncCanvas.height = lipSyncCanvas.offsetHeight || 275;
+  // Avatar animations handled by CSS
 }
 
 function startTalkingAvatarLoop() {
-  if (!lipSyncCanvas) return;
-  const ctx = lipSyncCanvas.getContext('2d');
-  const w = lipSyncCanvas.width;
-  const h = lipSyncCanvas.height;
   isSpeakingAnim = true;
-
-  let time = 0;
-
-  function render() {
-    if (!isSpeakingAnim) {
-      ctx.clearRect(0, 0, w, h);
-      return;
-    }
-
-    ctx.clearRect(0, 0, w, h);
-    time += 0.22;
-
-    const mouthX = w * 0.5;
-    const mouthY = h * 0.44;
-    const openAmount = Math.abs(Math.sin(time)) * 8 + 3;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(mouthX, mouthY, 12, openAmount, 0, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(180, 70, 80, 0.85)";
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.ellipse(mouthX, mouthY - openAmount * 0.4, 14, 3, 0, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(230, 130, 140, 0.9)";
-    ctx.fill();
-
-    ctx.restore();
-
-    lipSyncAnimFrame = requestAnimationFrame(render);
-  }
-
-  render();
+  const wrapper = document.getElementById('video-avatar-wrapper');
+  if (wrapper) wrapper.classList.add('talking');
+  if (speakingIndicator) speakingIndicator.classList.add('active');
 }
 
 function stopTalkingAvatarLoop() {
   isSpeakingAnim = false;
-  if (lipSyncAnimFrame) cancelAnimationFrame(lipSyncAnimFrame);
-  if (lipSyncCanvas) {
-    const ctx = lipSyncCanvas.getContext('2d');
-    ctx.clearRect(0, 0, lipSyncCanvas.width, lipSyncCanvas.height);
-  }
+  const wrapper = document.getElementById('video-avatar-wrapper');
+  if (wrapper) wrapper.classList.remove('talking');
+  if (speakingIndicator) speakingIndicator.classList.remove('active');
 }
 
 function loadNaturalVoices() {

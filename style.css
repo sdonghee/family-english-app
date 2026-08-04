@@ -221,6 +221,7 @@ body {
   color: #f8fafc;
 }
 
+/* 🎥 Max AI 1:1 라이브 화상 비디오 스테이지 (Continuous Motion Video Engine) */
 .max-video-stage {
   position: relative;
   margin: 10px 14px 6px 14px;
@@ -279,6 +280,7 @@ body {
   transform-origin: center center;
 }
 
+/* 🎬 대기 중일 때도 끊임없이 숨쉬고 고개를 살짝 움직이는 리얼 비디오 애니메이션! */
 .max-teacher-img.continuous-motion {
   animation: continuousBreathingVideo 4.5s infinite ease-in-out alternate;
 }
@@ -290,6 +292,7 @@ body {
   100% { transform: scale(1.02) translateY(-3px) rotate(0.2deg); }
 }
 
+/* 🗣️ 선생님이 말할 때 더욱 생생하게 말하며 끄덕이는 비디오 화상 애니메이션! */
 .max-video-stage.speaking .max-teacher-img {
   animation: activeTalkingVideo 0.45s infinite alternate cubic-bezier(0.45, 0.05, 0.55, 0.95);
 }
@@ -300,15 +303,52 @@ body {
   100% { transform: scale(1.015) translateY(1px) rotate(-0.4deg); }
 }
 
-.lip-sync-canvas {
+/* 🎤 Speaking indicator - animated sound bars */
+.speaking-indicator {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 5;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+  height: 28px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 10;
 }
+
+.speaking-indicator.active {
+  opacity: 1;
+}
+
+.speaking-indicator span {
+  width: 4px;
+  background: linear-gradient(180deg, #a855f7, #6366f1);
+  border-radius: 4px;
+  animation: none;
+}
+
+.speaking-indicator.active span {
+  animation: soundBar 0.6s ease-in-out infinite alternate;
+}
+
+.speaking-indicator.active span:nth-child(1) { height: 8px; animation-delay: 0s; }
+.speaking-indicator.active span:nth-child(2) { height: 16px; animation-delay: 0.1s; }
+.speaking-indicator.active span:nth-child(3) { height: 24px; animation-delay: 0.2s; }
+.speaking-indicator.active span:nth-child(4) { height: 14px; animation-delay: 0.15s; }
+.speaking-indicator.active span:nth-child(5) { height: 10px; animation-delay: 0.05s; }
+
+@keyframes soundBar {
+  0% { transform: scaleY(0.4); }
+  100% { transform: scaleY(1); }
+}
+
+/* Talking wrapper glow effect */
+.video-avatar-wrapper.talking .max-teacher-img {
+  box-shadow: 0 0 30px rgba(168, 85, 247, 0.5);
+}
+
 
 .video-live-pulse {
   position: absolute;
