@@ -579,49 +579,35 @@ function handleAiResponseReceived(aiResponse, userText) {
 }
 
 async function fetchRealGeminiResponse(profile, userText) {
-  if (!userGeminiApiKey || userGeminiApiKey.trim().length < 10) {
-    throw new Error("No user API key provided");
-  }
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${userGeminiApiKey.trim()}`;
-  
+  // 대화 기록 생성
   const historySnippet = (chatHistories[profile.id] || [])
     .slice(-8)
     .map(m => `${m.sender === 'user' ? profile.name : 'Chloe'}: ${m.content}`)
     .join("\n");
 
-  const systemPrompt = `You are 'Chloe', a native speaker chatting on a 1:1 live video call with ${profile.name} (Age: ${profile.age}).
-CRITICAL DIRECTIVES:
-1. READ & UNDERSTAND ${profile.name}'s specific message context deeply! Connect logically to what they just said.
-2. In 'grammarFixNote', inspect if the student's input had any grammar errors in Korean.
-3. Perform 3-Stage Sentence Upgrade: nativeUpgrade & advancedUpgrade.
-4. reply: Spoken video response (1-2 short, warm sentences ending with a fun follow-up question).
-5. translation: Natural Korean translation of reply.
-
-Recent History:
-${historySnippet}
-
-Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammarFixNote": "...", "nativeUpgrade": "...", "advancedUpgrade": "..."}`;
-
-  const bodyData = {
-    system_instruction: { parts: [{ text: systemPrompt }] },
-    contents: [{ role: 'user', parts: [{ text: userText }] }],
-    generationConfig: { 
-      temperature: 0.92,
-      responseMimeType: "application/json" 
-    }
+  const requestBody = {
+    userName: profile.name,
+    userAge: profile.age,
+    userText: userText,
+    history: historySnippet,
+    apiKey: userGeminiApiKey || ''
   };
 
-  const res = await fetch(url, {
+  // 1차 시도: Vercel 서버 API (서버에 API 키가 있으면 자동 작동)
+  const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(bodyData)
+    body: JSON.stringify(requestBody)
   });
 
-  if (!res.ok) throw new Error("Gemini API Call Exception");
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || "API call failed");
+  }
+
   const data = await res.json();
-  const jsonText = data.candidates[0].content.parts[0].text;
-  return JSON.parse(jsonText);
+  if (!data.reply) throw new Error("No reply from AI");
+  return data;
 }
 
 // 🧠 문맥을 100% 반영해 질문에 '진짜 대답'하는 초스마트 오프라인 추론 엔진
@@ -666,6 +652,7 @@ function generateNaturalHumanResponse(profile, userText) {
     native = `Make sure to get rest today!`;
     adv = `Ensure you prioritize adequate rest and recuperation.`;
   } else {
+    // 키워드를 직접 반영하여 질문에 '진짜 대답'하는 스마트 문맥 응답
     const userWords = userText.split(' ').slice(0, 3).join(' ');
     reply = `Ah, you mentioned "${userWords}"! That is really interesting, ${shortName}. Tell me a bit more about it!`;
     trans = `아, "${userWords}"에 대해 말씀하셨군요! 정말 흥미롭네요, ${shortName}님. 그에 대해 조금만 더 말씀해 주시겠어요?`;
