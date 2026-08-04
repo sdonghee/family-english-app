@@ -306,11 +306,12 @@ body {
   align-items: center;
   padding: 12px 16px 6px 16px;
   background: linear-gradient(180deg, #ffffff 0%, #f0f4f8 100%);
+  cursor: pointer;
 }
 
 .ai-teacher-avatar {
-  width: 96px;
-  height: 96px;
+  width: 90px;
+  height: 90px;
   border-radius: 50%;
   background: linear-gradient(135deg, #6c5ce7, #a29bfe);
   box-shadow: var(--shadow-md);
@@ -323,8 +324,8 @@ body {
 }
 
 .teacher-face {
-  width: 50px;
-  height: 50px;
+  width: 48px;
+  height: 48px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -401,8 +402,8 @@ body {
 }
 
 .lingo-status-tag {
-  margin-top: 12px;
-  background: rgba(108, 92, 231, 0.1);
+  margin-top: 10px;
+  background: rgba(108, 92, 231, 0.12);
   color: var(--primary-color);
   padding: 4px 14px;
   border-radius: 14px;
@@ -413,7 +414,7 @@ body {
 /* Messages List */
 .chat-messages {
   flex: 1;
-  padding: 12px 16px;
+  padding: 10px 16px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -511,7 +512,7 @@ body {
 .quick-chips-container {
   display: flex;
   gap: 6px;
-  padding: 4px 16px 8px 16px;
+  padding: 4px 16px;
   overflow-x: auto;
 }
 
@@ -532,40 +533,75 @@ body {
   color: white;
 }
 
-/* Voice Conversation & Text Input Bar */
+/* GIANT ACCESSIBLE VOICE MIC CONTROL PANEL */
+.voice-control-panel {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 16px;
+  background: #ffffff;
+  border-top: 1px solid #f1f2f6;
+}
+
+.giant-mic-btn {
+  width: 100%;
+  max-width: 280px;
+  height: 54px;
+  background: linear-gradient(135deg, #ff7675, #d63031);
+  border: none;
+  border-radius: 28px;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  box-shadow: 0 8px 20px rgba(214, 48, 49, 0.35);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.giant-mic-btn:active {
+  transform: scale(0.96);
+}
+
+.giant-mic-btn.listening {
+  background: linear-gradient(135deg, #e84393, #6c5ce7);
+  box-shadow: 0 8px 24px rgba(232, 67, 147, 0.5);
+  animation: pulseGiantMic 0.8s infinite alternate;
+}
+
+@keyframes pulseGiantMic {
+  0% { transform: scale(0.98); }
+  100% { transform: scale(1.05); }
+}
+
+.mic-inner-circle {
+  width: 38px;
+  height: 38px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mic-emoji {
+  font-size: 22px;
+}
+
+.mic-text {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+}
+
+/* Text Input Bar */
 .chat-input-bar {
   background: white;
-  padding: 10px 14px;
+  padding: 8px 16px 12px 16px;
   display: flex;
   gap: 8px;
   align-items: center;
-  border-top: 1px solid #e2e8f0;
-}
-
-.mic-btn {
-  background: #ff7675;
-  color: white;
-  border: none;
-  padding: 8px 12px;
-  border-radius: 18px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  box-shadow: 0 4px 10px rgba(255, 118, 117, 0.3);
-  transition: all 0.2s ease;
-}
-
-.mic-btn.listening {
-  background: #e84393;
-  animation: pulseMic 0.8s infinite alternate;
-}
-
-@keyframes pulseMic {
-  0% { transform: scale(0.96); }
-  100% { transform: scale(1.08); }
 }
 
 .chat-input-bar input {

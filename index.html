@@ -70,7 +70,7 @@
         </div>
 
         <!-- REALISTIC AI HUMAN TEACHER VIDEO STAGE -->
-        <div class="ai-human-stage">
+        <div class="ai-human-stage" id="ai-human-stage" title="선생님 얼굴이나 아래 마이크 버튼을 눌러 말하세요!">
           <div id="ai-teacher-avatar" class="ai-teacher-avatar idle">
             <!-- Animated AI Human Teacher Face -->
             <div class="teacher-face">
@@ -82,7 +82,7 @@
             </div>
             <div class="video-badge">🔴 Live AI Teacher</div>
           </div>
-          <div id="lingo-status-tag" class="lingo-status-tag">👩‍🏫 말씀해 주세요, 듣고 있어요!</div>
+          <div id="lingo-status-tag" class="lingo-status-tag">👩‍🏫 아래 커다란 마이크를 눌러 말씀하세요!</div>
         </div>
 
         <!-- Messages Area -->
@@ -95,13 +95,19 @@
           <!-- Dynamic chips -->
         </div>
 
-        <!-- Voice Conversation & Text Input Bar -->
-        <div class="chat-input-bar">
-          <button id="mic-btn" class="mic-btn" title="음성 대화 시작 (클릭하고 말하세요)">
-            <span id="mic-icon">🎤</span>
-            <span id="mic-label">말하기</span>
+        <!-- GIANT ACCESSIBLE VOICE MIC CONTROL PANEL -->
+        <div class="voice-control-panel">
+          <button id="giant-mic-btn" class="giant-mic-btn">
+            <div class="mic-inner-circle">
+              <span id="mic-icon" class="mic-emoji">🎙️</span>
+            </div>
+            <span id="mic-label" class="mic-text">눌러서 말하기</span>
           </button>
-          <input type="text" id="chat-input" placeholder="음성으로 말하거나 여기에 입력하세요..." autocomplete="off" />
+        </div>
+
+        <!-- Text Input Bar (Collapsible/Optional) -->
+        <div class="chat-input-bar">
+          <input type="text" id="chat-input" placeholder="키보드로 입력하거나 위 마이크를 누르세요..." autocomplete="off" />
           <button id="send-btn" class="send-btn">
             <span>전송</span> 🚀
           </button>

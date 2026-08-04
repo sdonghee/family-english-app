@@ -106,6 +106,7 @@ const progressBarFill = document.getElementById('progress-bar-fill');
 const nextLevelXpText = document.getElementById('next-level-xp-text');
 const badgeCountText = document.getElementById('badge-count-text');
 
+const aiHumanStage = document.getElementById('ai-human-stage');
 const teacherMouth = document.getElementById('teacher-mouth');
 const lingoStatusTag = document.getElementById('lingo-status-tag');
 
@@ -113,7 +114,7 @@ const chatMessages = document.getElementById('chat-messages');
 const quickChipsContainer = document.getElementById('quick-chips-container');
 const chatInput = document.getElementById('chat-input');
 const sendBtn = document.getElementById('send-btn');
-const micBtn = document.getElementById('mic-btn');
+const giantMicBtn = document.getElementById('giant-mic-btn');
 const micIcon = document.getElementById('mic-icon');
 const micLabel = document.getElementById('mic-label');
 const resetBtn = document.getElementById('reset-btn');
@@ -136,7 +137,7 @@ function initApp() {
 }
 
 function loadStoredData() {
-  const savedProfiles = localStorage.getItem('lingo_profiles_v4');
+  const savedProfiles = localStorage.getItem('lingo_profiles_v5');
   if (savedProfiles) {
     profiles = JSON.parse(savedProfiles);
   } else {
@@ -144,7 +145,7 @@ function loadStoredData() {
     saveProfiles();
   }
 
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v4');
+  const savedHistories = localStorage.getItem('lingo_chat_histories_v5');
   if (savedHistories) {
     chatHistories = JSON.parse(savedHistories);
   }
@@ -154,11 +155,11 @@ function loadStoredData() {
 }
 
 function saveProfiles() {
-  localStorage.setItem('lingo_profiles_v4', JSON.stringify(profiles));
+  localStorage.setItem('lingo_profiles_v5', JSON.stringify(profiles));
 }
 
 function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v4', JSON.stringify(chatHistories));
+  localStorage.setItem('lingo_chat_histories_v5', JSON.stringify(chatHistories));
 }
 
 function renderProfiles() {
@@ -299,7 +300,6 @@ function toggleTranslation(id) {
   }
 }
 
-// REALTIME SPEECH SYNTHESIS & VOICE AUDIO (TTS)
 function speakText(text) {
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
@@ -312,14 +312,13 @@ function speakText(text) {
     };
 
     utterance.onend = () => {
-      updateTeacherFaceState('idle', '👩‍🏫 말씀해 주세요, 듣고 있어요!');
+      updateTeacherFaceState('idle', '👩‍🏫 아래 마이크를 누르거나 선생님을 터치해 말하세요!');
     };
 
     window.speechSynthesis.speak(utterance);
   }
 }
 
-// REALTIME SPEECH RECOGNITION (STT - 🎤 음성 대화)
 function setupSpeechRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
@@ -330,12 +329,13 @@ function setupSpeechRecognition() {
   recognition = new SpeechRecognition();
   recognition.continuous = false;
   recognition.interimResults = false;
-  recognition.lang = 'en-US'; // 영어/한국어 자동 감지
+  recognition.lang = 'en-US';
 
   recognition.onstart = () => {
     isListening = true;
-    micBtn.classList.add('listening');
-    micLabel.innerText = "듣는 중...";
+    giantMicBtn.classList.add('listening');
+    micIcon.innerText = "🔴";
+    micLabel.innerText = "음성 듣는 중...";
     lingoStatusTag.innerText = "🎤 목소리를 듣고 있어요! 편하게 말씀하세요...";
   };
 
@@ -357,7 +357,7 @@ function setupSpeechRecognition() {
 
 function toggleListening() {
   if (!recognition) {
-    alert("이 브라우저에서는 마이크 음성 인식이 지원되지 않습니다. 키보드로 입력해 보세요!");
+    alert("이 브라우저에서는 마이크 음성 인식이 지원되지 않습니다. 하단 키보드로 입력해 보세요!");
     return;
   }
 
@@ -371,9 +371,10 @@ function toggleListening() {
 
 function stopListening() {
   isListening = false;
-  micBtn.classList.remove('listening');
-  micLabel.innerText = "말하기";
-  lingoStatusTag.innerText = "👩‍🏫 말씀해 주세요, 듣고 있어요!";
+  giantMicBtn.classList.remove('listening');
+  micIcon.innerText = "🎙️";
+  micLabel.innerText = "눌러서 말하기";
+  lingoStatusTag.innerText = "👩‍🏫 아래 마이크를 누르거나 선생님을 터치해 말하세요!";
 }
 
 function renderQuickChips() {
@@ -419,7 +420,7 @@ async function handleSendMessage() {
   saveHistories();
   renderMessages();
 
-  updateTeacherFaceState('thinking', '🤔 AI 선생님이 자연스러운 대화를 생각하고 있어요...');
+  updateTeacherFaceState('thinking', '🤔 AI 선생님이 답변을 생각하고 있어요...');
 
   const xpEarned = text.split(' ').length >= 4 ? 30 : 20;
   const didLevelUp = addXpToActiveProfile(xpEarned);
@@ -579,7 +580,8 @@ function setupEventListeners() {
   });
 
   sendBtn.addEventListener('click', handleSendMessage);
-  micBtn.addEventListener('click', toggleListening);
+  giantMicBtn.addEventListener('click', toggleListening);
+  aiHumanStage.addEventListener('click', toggleListening);
 
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') handleSendMessage();
@@ -606,8 +608,8 @@ function setupEventListeners() {
 
   resetBtn.addEventListener('click', () => {
     if (confirm('프로필과 대화 기록을 초기화하시겠습니까?')) {
-      localStorage.removeItem('lingo_profiles_v4');
-      localStorage.removeItem('lingo_chat_histories_v4');
+      localStorage.removeItem('lingo_profiles_v5');
+      localStorage.removeItem('lingo_chat_histories_v5');
       profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
       chatHistories = {};
       saveProfiles();
