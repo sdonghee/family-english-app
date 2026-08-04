@@ -376,11 +376,11 @@ body {
   margin-top: 3px;
 }
 
-/* 🎥 Max AI 화상 통화 스테이지 (Max AI 화상영어 PT 스타일) */
+/* 🎥 Max AI 라이브 말하는 화상 아바타 스테이지 (Talking Head Animation) */
 .max-video-stage {
   position: relative;
   margin: 6px 14px 4px 14px;
-  height: 230px;
+  height: 235px;
   border-radius: 20px;
   overflow: hidden;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
@@ -425,6 +425,7 @@ body {
   left: 0;
   width: 100%;
   height: 100%;
+  overflow: hidden;
 }
 
 .max-teacher-img {
@@ -432,7 +433,29 @@ body {
   height: 100%;
   object-fit: cover;
   object-position: center 20%;
-  transition: transform 0.4s ease;
+  transition: transform 0.2s ease;
+}
+
+/* 🗣️ 선생님이 말할 때 실제 고개를 끄덕이며 생생하게 움직이는 화상 애니메이션! */
+.max-video-stage.speaking .max-teacher-img {
+  animation: liveTalkingHead 0.5s infinite alternate cubic-bezier(0.45, 0.05, 0.55, 0.95);
+}
+
+@keyframes liveTalkingHead {
+  0% { transform: scale(1) translateY(0); }
+  50% { transform: scale(1.018) translateY(-3px) rotate(0.4deg); }
+  100% { transform: scale(1.008) translateY(1px) rotate(-0.3deg); }
+}
+
+/* 👄 실시간 립싱크 캔버스 */
+.lip-sync-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
 }
 
 .video-play-overlay-btn {
@@ -451,6 +474,7 @@ body {
   justify-content: center;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   transition: all 0.3s ease;
+  z-index: 12;
 }
 
 .play-triangle {
@@ -472,6 +496,7 @@ body {
   border: 3px solid transparent;
   pointer-events: none;
   transition: border-color 0.3s ease;
+  z-index: 8;
 }
 
 .max-video-stage.speaking .video-live-pulse {
@@ -681,7 +706,6 @@ body {
   cursor: pointer;
 }
 
-/* Max AI 하단 비디오 컨트롤 패널 */
 .max-video-controls {
   display: flex;
   align-items: center;

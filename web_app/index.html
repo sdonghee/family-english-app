@@ -30,7 +30,7 @@
         <div class="banner-card">
           <div class="banner-text">
             <h2>AI 화상영어 1:1 PT</h2>
-            <p>실제 원어민 튜터 Chloe와의 생생한 1:1 리얼 타임 비디오 통화 대화!</p>
+            <p>실제 말하는 원어민 튜터 Chloe와의 1:1 라이브 모션 비디오 대화!</p>
           </div>
           <div class="banner-icon">📹</div>
         </div>
@@ -79,26 +79,30 @@
           </div>
         </div>
 
-        <!-- Max AI 화상 통화 튜터 비디오 스테이지 -->
+        <!-- Max AI 화상 통화 튜터 비디오 스테이지 (Live Talking Animation) -->
         <div class="max-video-stage" id="ai-human-stage">
-          <div class="max-ai-badge">max ai <span>LIVE</span></div>
+          <div class="max-ai-badge">max ai <span>LIVE CALL</span></div>
 
-          <div class="video-avatar-wrapper">
+          <div class="video-avatar-wrapper" id="video-avatar-wrapper">
             <img src="assets/chloe_teacher_avatar.jpg" alt="Chloe AI Teacher" class="max-teacher-img" id="max-teacher-img">
+            
+            <!-- 👄 실시간 립싱크 및 고화질 모션 캔버스 -->
+            <canvas id="lip-sync-canvas" class="lip-sync-canvas"></canvas>
+
             <div class="video-play-overlay-btn" id="video-play-overlay-btn">
               <div class="play-triangle"></div>
             </div>
             <div class="video-live-pulse" id="video-live-pulse"></div>
           </div>
 
-          <!-- 자막 & 수치 스피치 오버레이 (Max AI 핵심 스타일) -->
+          <!-- 자막 & 스피치 오버레이 -->
           <div class="speech-overlay-box" id="speech-overlay-box">
             <div class="speech-en-text" id="speech-en-text">"How are you doing today?"</div>
             <div class="speech-kr-sub" id="speech-kr-sub">오늘 하루 어떠셨나요?</div>
           </div>
 
           <div class="lingo-status-tag" id="lingo-status-tag">
-            👩‍🏫 마이크를 누르거나 화면을 터치해 실제 화상 통화처럼 대화하세요!
+            👩‍🏫 마이크를 누르면 Chloe 선생님이 고개를 끄덕이며 입을 모션으로 움직여 대화합니다!
           </div>
         </div>
 

@@ -115,6 +115,8 @@ let naturalVoices = [];
 let speechPauseTimer = null;
 let accumulatedTranscript = '';
 let conversationTurnCount = 0;
+let lipSyncAnimFrame = null;
+let isSpeakingAnim = false;
 
 const profileSection = document.getElementById('profile-section');
 const chatSection = document.getElementById('chat-section');
@@ -137,6 +139,7 @@ const speechEnText = document.getElementById('speech-en-text');
 const speechKrSub = document.getElementById('speech-kr-sub');
 const videoPlayOverlayBtn = document.getElementById('video-play-overlay-btn');
 const hintToggleBtn = document.getElementById('hint-toggle-btn');
+const lipSyncCanvas = document.getElementById('lip-sync-canvas');
 
 const chatMessages = document.getElementById('chat-messages');
 const quickChipsContainer = document.getElementById('quick-chips-container');
@@ -183,6 +186,67 @@ function initApp() {
   setupSpeechRecognition();
   loadNaturalVoices();
   setupEventListeners();
+  initLipSyncCanvas();
+}
+
+function initLipSyncCanvas() {
+  if (!lipSyncCanvas) return;
+  lipSyncCanvas.width = lipSyncCanvas.offsetWidth || 340;
+  lipSyncCanvas.height = lipSyncCanvas.offsetHeight || 235;
+}
+
+// 👄 실제 말하는 아바타 입 모양 립싱크 캔버스 루프 (Dynamic Talking Avatar Loop)
+function startTalkingAvatarLoop() {
+  if (!lipSyncCanvas) return;
+  const ctx = lipSyncCanvas.getContext('2d');
+  const w = lipSyncCanvas.width;
+  const h = lipSyncCanvas.height;
+  isSpeakingAnim = true;
+
+  let time = 0;
+
+  function render() {
+    if (!isSpeakingAnim) {
+      ctx.clearRect(0, 0, w, h);
+      return;
+    }
+
+    ctx.clearRect(0, 0, w, h);
+    time += 0.18;
+
+    // 아바타 이미지 입 영역 위치 (중앙 상단 38% 부근)
+    const mouthX = w * 0.5;
+    const mouthY = h * 0.46;
+    const openAmount = Math.abs(Math.sin(time)) * 7 + 2;
+
+    // 자연스러운 입술 모양과 입 벌림 애니메이션
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(mouthX, mouthY, 11, openAmount, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(180, 70, 80, 0.75)";
+    ctx.fill();
+
+    // 윗입술 및 아랫입술 뉘앙스
+    ctx.beginPath();
+    ctx.ellipse(mouthX, mouthY - openAmount * 0.4, 13, 3, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(220, 120, 130, 0.85)";
+    ctx.fill();
+
+    ctx.restore();
+
+    lipSyncAnimFrame = requestAnimationFrame(render);
+  }
+
+  render();
+}
+
+function stopTalkingAvatarLoop() {
+  isSpeakingAnim = false;
+  if (lipSyncAnimFrame) cancelAnimationFrame(lipSyncAnimFrame);
+  if (lipSyncCanvas) {
+    const ctx = lipSyncCanvas.getContext('2d');
+    ctx.clearRect(0, 0, lipSyncCanvas.width, lipSyncCanvas.height);
+  }
 }
 
 function loadNaturalVoices() {
@@ -210,7 +274,7 @@ function loadNaturalVoices() {
 }
 
 function loadStoredData() {
-  const savedProfiles = localStorage.getItem('lingo_profiles_v15');
+  const savedProfiles = localStorage.getItem('lingo_profiles_v16');
   if (savedProfiles) {
     profiles = JSON.parse(savedProfiles);
   } else {
@@ -218,13 +282,13 @@ function loadStoredData() {
     saveProfiles();
   }
 
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v15');
+  const savedHistories = localStorage.getItem('lingo_chat_histories_v16');
   if (savedHistories) chatHistories = JSON.parse(savedHistories);
 
-  const savedMemories = localStorage.getItem('lingo_profile_memories_v15');
+  const savedMemories = localStorage.getItem('lingo_profile_memories_v16');
   if (savedMemories) profileMemories = JSON.parse(savedMemories);
 
-  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v15');
+  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v16');
   if (savedFlashcards) userFlashcards = JSON.parse(savedFlashcards);
 
   userGeminiApiKey = localStorage.getItem('lingo_gemini_api_key') || '';
@@ -232,19 +296,19 @@ function loadStoredData() {
 }
 
 function saveProfiles() {
-  localStorage.setItem('lingo_profiles_v15', JSON.stringify(profiles));
+  localStorage.setItem('lingo_profiles_v16', JSON.stringify(profiles));
 }
 
 function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v15', JSON.stringify(chatHistories));
+  localStorage.setItem('lingo_chat_histories_v16', JSON.stringify(chatHistories));
 }
 
 function saveMemories() {
-  localStorage.setItem('lingo_profile_memories_v15', JSON.stringify(profileMemories));
+  localStorage.setItem('lingo_profile_memories_v16', JSON.stringify(profileMemories));
 }
 
 function saveFlashcards() {
-  localStorage.setItem('lingo_user_flashcards_v15', JSON.stringify(userFlashcards));
+  localStorage.setItem('lingo_user_flashcards_v16', JSON.stringify(userFlashcards));
 }
 
 function renderLeaderboard() {
@@ -452,16 +516,18 @@ function speakText(text) {
 
     aiHumanStage.classList.add('speaking');
     if (videoPlayOverlayBtn) videoPlayOverlayBtn.style.opacity = '0';
+    startTalkingAvatarLoop();
 
-    updateTeacherFaceState('speaking', '👩‍🏫 Chloe 선생님이 실제 화상 음성으로 대화 중...');
+    updateTeacherFaceState('speaking', '👩‍🏫 Chloe 선생님이 실제 입을 움직이며 이야기하는 중...');
 
     let currentIdx = 0;
 
     const playNextChunk = () => {
       if (currentIdx >= chunks.length) {
         aiHumanStage.classList.remove('speaking');
+        stopTalkingAvatarLoop();
         if (videoPlayOverlayBtn) videoPlayOverlayBtn.style.opacity = '1';
-        updateTeacherFaceState('idle', '👩‍🏫 마이크를 누르거나 화면을 터치해 실제 화상 통화처럼 대화하세요!');
+        updateTeacherFaceState('idle', '👩‍🏫 마이크를 누르면 Chloe 선생님이 고개를 끄덕이며 말을 건넵니다!');
         return;
       }
 
@@ -977,10 +1043,10 @@ function setupEventListeners() {
 
   resetBtn.addEventListener('click', () => {
     if (confirm('프로필과 대화 기록, 단어장을 모두 초기화하시겠습니까?')) {
-      localStorage.removeItem('lingo_profiles_v15');
-      localStorage.removeItem('lingo_chat_histories_v15');
-      localStorage.removeItem('lingo_profile_memories_v15');
-      localStorage.removeItem('lingo_user_flashcards_v15');
+      localStorage.removeItem('lingo_profiles_v16');
+      localStorage.removeItem('lingo_chat_histories_v16');
+      localStorage.removeItem('lingo_profile_memories_v16');
+      localStorage.removeItem('lingo_user_flashcards_v16');
       profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
       chatHistories = {};
       profileMemories = {};
