@@ -665,12 +665,15 @@ function setupSpeechRecognition() {
 
     if (speechPauseTimer) clearTimeout(speechPauseTimer);
 
+    // 🛑 성급하게 잘리지 않도록 넉넉하게 대기! (말이 완성되고 문장이 완전히 끝난 뒤 2.4초 쉼이 있을 때 전송)
     speechPauseTimer = setTimeout(() => {
-      if (chatInput && chatInput.value.trim().length > 0) {
+      const fullText = chatInput ? chatInput.value.trim() : '';
+      if (fullText.length > 0) {
+        // 단어가 최소 1글자 이상 완전할 때 전송
         stopListening();
         handleSendMessage();
       }
-    }, 2200);
+    }, 2400);
   };
 
   recognition.onerror = (e) => {
