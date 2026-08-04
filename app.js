@@ -114,7 +114,7 @@ let recognition = null;
 let naturalVoices = [];
 let speechPauseTimer = null;
 let accumulatedTranscript = '';
-let recentReplyHashes = new Set();
+let conversationTurnCount = 0;
 
 const profileSection = document.getElementById('profile-section');
 const chatSection = document.getElementById('chat-section');
@@ -207,7 +207,7 @@ function loadNaturalVoices() {
 }
 
 function loadStoredData() {
-  const savedProfiles = localStorage.getItem('lingo_profiles_v13');
+  const savedProfiles = localStorage.getItem('lingo_profiles_v14');
   if (savedProfiles) {
     profiles = JSON.parse(savedProfiles);
   } else {
@@ -215,13 +215,13 @@ function loadStoredData() {
     saveProfiles();
   }
 
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v13');
+  const savedHistories = localStorage.getItem('lingo_chat_histories_v14');
   if (savedHistories) chatHistories = JSON.parse(savedHistories);
 
-  const savedMemories = localStorage.getItem('lingo_profile_memories_v13');
+  const savedMemories = localStorage.getItem('lingo_profile_memories_v14');
   if (savedMemories) profileMemories = JSON.parse(savedMemories);
 
-  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v13');
+  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v14');
   if (savedFlashcards) userFlashcards = JSON.parse(savedFlashcards);
 
   userGeminiApiKey = localStorage.getItem('lingo_gemini_api_key') || '';
@@ -229,19 +229,19 @@ function loadStoredData() {
 }
 
 function saveProfiles() {
-  localStorage.setItem('lingo_profiles_v13', JSON.stringify(profiles));
+  localStorage.setItem('lingo_profiles_v14', JSON.stringify(profiles));
 }
 
 function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v13', JSON.stringify(chatHistories));
+  localStorage.setItem('lingo_chat_histories_v14', JSON.stringify(chatHistories));
 }
 
 function saveMemories() {
-  localStorage.setItem('lingo_profile_memories_v13', JSON.stringify(profileMemories));
+  localStorage.setItem('lingo_profile_memories_v14', JSON.stringify(profileMemories));
 }
 
 function saveFlashcards() {
-  localStorage.setItem('lingo_user_flashcards_v13', JSON.stringify(userFlashcards));
+  localStorage.setItem('lingo_user_flashcards_v14', JSON.stringify(userFlashcards));
 }
 
 function renderLeaderboard() {
@@ -288,7 +288,7 @@ function selectProfile(id) {
   activeProfile = profiles.find(p => p.id === id);
   if (!activeProfile) return;
 
-  recentReplyHashes.clear();
+  conversationTurnCount = 0;
 
   if (!profileMemories[id]) {
     profileMemories[id] = { pastTopics: [], masteredVocab: [], fluencyScore: 75, pedagogyNotes: "초기 대화 관찰 중" };
@@ -320,22 +320,22 @@ function selectProfile(id) {
 function getWelcomeMessage(profile) {
   const shortName = profile.name.split(' ')[1] || profile.name;
   if (profile.age <= 5) {
-    return `Hi ${shortName}! What are you thinking about right now? ✨`;
+    return `Hi ${shortName}! What are you playing with today? ✨`;
   } else if (profile.age <= 9) {
-    return `Hey ${shortName}! What exciting thing happened to you today? 🎮`;
+    return `Hey ${shortName}! What was the best part of your day today? 🎮`;
   } else {
-    return `Hello ${profile.name}! It's so wonderful to chat with you today. What's on your mind? ✨`;
+    return `Hello ${profile.name}! I'm so glad we're catching up. How's everything going with you today? ✨`;
   }
 }
 
 function getWelcomeTranslation(profile) {
   const shortName = profile.name.split(' ')[1] || profile.name;
   if (profile.age <= 5) {
-    return `안녕 ${shortName}! 지금 무슨 생각 하고 있어? ✨`;
+    return `안녕 ${shortName}! 오늘 뭐 하고 놀고 있니? ✨`;
   } else if (profile.age <= 9) {
-    return `안녕 ${shortName}! 오늘 무슨 재미있는 일이 있었니? 🎮`;
+    return `안녕 ${shortName}! 오늘 가장 재미있었던 일은 뭐야? 🎮`;
   } else {
-    return `안녕하세요 ${profile.name}님! 이야기 나누게 되어 정말 반가워요. 오늘 어떤 주제로 이야기해 볼까요? ✨`;
+    return `안녕하세요 ${profile.name}님! 대화하게 되어 정말 반가워요. 오늘 하루 어떠셨나요? ✨`;
   }
 }
 
@@ -440,7 +440,7 @@ function speakText(text) {
 
     const chunks = cleanSpeech.match(/[^.!?]+[.!?]+/g) || [cleanSpeech];
 
-    updateTeacherFaceState('speaking', '👩‍🏫 생생한 원어민 억양으로 대화하는 중...');
+    updateTeacherFaceState('speaking', '👩‍🏫 원어민 음성으로 자연스럽게 이야기하는 중...');
 
     let currentIdx = 0;
 
@@ -463,13 +463,13 @@ function speakText(text) {
       utterance.lang = 'en-US';
 
       if (chunkText.endsWith('?')) {
-        utterance.pitch = 1.15;
+        utterance.pitch = 1.14;
         utterance.rate = 0.94;
       } else if (chunkText.endsWith('!')) {
-        utterance.pitch = 1.10;
+        utterance.pitch = 1.08;
         utterance.rate = 0.96;
       } else {
-        utterance.pitch = 1.04;
+        utterance.pitch = 1.03;
         utterance.rate = 0.92;
       }
 
@@ -584,13 +584,13 @@ function renderQuickChips() {
 
   let chips = [];
   if (activeProfile.age <= 5) {
-    chips = ["I played with toys today!", "I ate delicious lunch!", "Can you tell me a funny story?"];
+    chips = ["I played with my toys!", "I had delicious snacks!", "Can you tell me a story?"];
   } else if (activeProfile.age <= 7) {
-    chips = ["I love exploring dinosaurs!", "I played a fun game at school!", "Can you teach me a new word?"];
+    chips = ["I love T-Rex dinosaurs!", "I played with friends today!", "Teach me a fun word!"];
   } else if (activeProfile.age <= 9) {
-    chips = ["I finished my school project!", "I love listening to music!", "Let's talk about travel!"];
+    chips = ["I love playing games!", "I listened to my favorite song!", "Let me tell you something!"];
   } else {
-    chips = ["What is your opinion on social psychology?", "How can I elevate my vocabulary naturally?", "Let's discuss global culture and travel."];
+    chips = ["How was your day today?", "What topic should we explore?", "Can you teach me a native idiom?"];
   }
 
   chips.forEach(text => {
@@ -621,7 +621,7 @@ async function handleSendMessage() {
   saveHistories();
   renderMessages();
 
-  updateTeacherFaceState('thinking', '🤔 사용자의 문장을 알아듣고 답변을 생성하고 있어요...');
+  updateTeacherFaceState('thinking', '🤔 실시간 대화 반응을 생각하고 있어요...');
 
   const xpEarned = text.split(' ').length >= 4 ? 30 : 20;
   const didLevelUp = addXpToActiveProfile(xpEarned);
@@ -632,14 +632,14 @@ async function handleSendMessage() {
       handleAiResponseReceived(resp, didLevelUp, text);
       return;
     } catch (e) {
-      console.warn("Gemini API Call fallback to Dynamic NLP Engine", e);
+      console.warn("Gemini API Call fallback to Natural Conversational Engine", e);
     }
   }
 
   setTimeout(() => {
-    const aiResponse = generateIntelligentDynamicSpokenResponse(activeProfile, text);
+    const aiResponse = generateNaturalHumanResponse(activeProfile, text);
     handleAiResponseReceived(aiResponse, didLevelUp, text);
-  }, 800);
+  }, 700);
 }
 
 function handleAiResponseReceived(aiResponse, didLevelUp, userText) {
@@ -705,17 +705,18 @@ async function fetchRealGeminiResponse(profile, userText) {
     .map(m => `${m.sender === 'user' ? 'Student' : 'Chloe'}: ${m.content}`)
     .join("\n");
 
-  const systemPrompt = `You are 'Chloe', a real native speaker having an authentic conversational chat with ${profile.name} (Age: ${profile.age}).
-CRITICAL RULES:
-1. NEVER repeat previous sentences. Every single response MUST be completely unique and directly react to "${userText}".
-2. Speak in 1-2 SHORT, natural conversational spoken sentences.
-3. Perform 3-Stage Sentence Upgrade:
+  const systemPrompt = `You are 'Chloe', an incredibly warm, intelligent, bilingual native conversation partner chatting with ${profile.name} (Age: ${profile.age}).
+CRITICAL DIALOGUE DIRECTIVES:
+1. NEVER quote raw user strings like "You mentioned X". Respond naturally to the meaning of what they said!
+2. Speak in 1-2 SHORT, warm spoken conversational sentences.
+3. If user spoke in Korean or hesitated, give a warm supportive response in simple English with a friendly question.
+4. Perform 3-Stage Sentence Upgrade on user's input:
    - nativeUpgrade: Everyday natural native phrasing.
-   - advancedUpgrade: Sophisticated C1/C2 vocabulary.
-4. reply: Spontaneous spoken reply.
-5. translation: Korean translation.
-6. grammarHint: Key idiom.
-7. phonemeTip: Stress & intonation tip.
+   - advancedUpgrade: C1/C2 vocabulary.
+5. reply: Your natural spoken response.
+6. translation: Korean translation of reply.
+7. grammarHint: Useful native idiom.
+8. phonemeTip: Stress & intonation tip.
 
 Recent History:
 ${historySnippet}
@@ -726,7 +727,7 @@ Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammar
     system_instruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: 'user', parts: [{ text: userText }] }],
     generationConfig: { 
-      temperature: 0.95,
+      temperature: 0.92,
       responseMimeType: "application/json" 
     }
   };
@@ -743,82 +744,55 @@ Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammar
   return JSON.parse(jsonText);
 }
 
-function generateIntelligentDynamicSpokenResponse(profile, userText) {
-  const clean = userText.trim();
-  const lower = clean.toLowerCase();
+function generateNaturalHumanResponse(profile, userText) {
+  conversationTurnCount++;
   const shortName = profile.name.split(' ')[1] || profile.name;
+  const lower = userText.toLowerCase();
 
-  let topic = "general";
-  if (lower.includes("weather") || lower.includes("rain") || lower.includes("sun") || lower.includes("날씨") || lower.includes("비") || lower.includes("더워")) {
-    topic = "weather";
-  } else if (lower.includes("food") || lower.includes("eat") || lower.includes("pizza") || lower.includes("lunch") || lower.includes("먹") || lower.includes("밥")) {
-    topic = "food";
-  } else if (lower.includes("game") || lower.includes("play") || lower.includes("toy") || lower.includes("놀") || lower.includes("게임")) {
-    topic = "game";
-  } else if (lower.includes("work") || lower.includes("busy") || lower.includes("office") || lower.includes("일") || lower.includes("회사")) {
-    topic = "work";
-  } else if (lower.includes("travel") || lower.includes("trip") || lower.includes("여행")) {
-    topic = "travel";
-  }
+  const conversationResponses = [
+    {
+      reply: `I see! That makes total sense, ${shortName}. How are you feeling about everything right now?`,
+      trans: `아 그렇군요! 무슨 뜻인지 잘 알겠어요, ${shortName}님. 지금 기분이나 마음은 어떠신가요?`,
+      native: `That makes complete sense to me.`,
+      adv: `I fully comprehend your perspective.`,
+      hint: "Tip: 'makes total sense' = 완전히 이해가 되다",
+      phoneme: "Tip: 'sense'는 [센스]로 명확하게 마무리를 하세요!"
+    },
+    {
+      reply: `Oh, that's really interesting! Tell me a little bit more about that, ${shortName}.`,
+      trans: `아 정말 흥미롭네요! 그 이야기에 대해 조금만 더 자세히 들려주시겠어요, ${shortName}님?`,
+      native: `Could you tell me a bit more?`,
+      adv: `Would you mind elaborating on that point?`,
+      hint: "Tip: 'elaborate on' = ~에 대해 더 상세히 설명하다",
+      phoneme: "Tip: 'elaborate'는 둘째 음절 [-래-]에 강세를 주세요!"
+    },
+    {
+      reply: `That sounds pretty cool! What do you plan to do next today, ${shortName}?`,
+      trans: `정말 근사하네요! 오늘 다음에는 어떤 일을 할 계획이신가요, ${shortName}님?`,
+      native: `What are your plans for later?`,
+      adv: `What subsequent activities have you scheduled for today?`,
+      hint: "Tip: 'plans for later' = 나중의 계획",
+      phoneme: "Tip: 'plans'는 [플랜즈]처럼 약간 길게 당겨서 발음하세요!"
+    },
+    {
+      reply: `I completely agree with you on that! It's always nice sharing ideas with you, ${shortName}.`,
+      trans: `그 말씀에 완전히 동감해요! ${shortName}님과 함께 생각을 나누는 건 늘 즐거워요.`,
+      native: `I'm completely on the same page with you.`,
+      adv: `I concur whole-heartedly with your assessment.`,
+      hint: "Tip: 'on the same page' = 같은 생각/동감이다",
+      phoneme: "Tip: 'concur'는 둘째 음절 [-커-]에 강세를 주세요!"
+    }
+  ];
 
-  let replyText = "";
-  let transText = "";
-  let nativeUp = "";
-  let advUp = "";
-  let hint = "";
-  let phoneme = "";
-
-  if (topic === "weather") {
-    replyText = `That sounds like nice weather to talk about! How does the sky look outside right now, ${shortName}?`;
-    transText = `날씨에 대해 이야기하니 좋네요! 지금 창밖 하늘은 어떤 모습인가요, ${shortName}님?`;
-    nativeUp = `It's pretty pleasant outside today.`;
-    advUp = `The meteorological conditions are remarkably agreeable.`;
-    hint = "Tip: 'pleasant outside' = 밖의 날씨가 상쾌하다";
-    phoneme = "Tip: 'pleasant'는 [플레전트]처럼 첫 음절에 힘을 주세요!";
-  } else if (topic === "food") {
-    replyText = `Talking about '${clean}' is making me hungry! What's your absolute favorite dish, ${shortName}?`;
-    transText = `"${clean}"에 대한 이야기를 들으니 출출해지네요! ${shortName}님이 가장 좋아하시는 요리는 무엇인가요?`;
-    nativeUp = `I'm really craving something delicious right now.`;
-    advUp = `I possess a refined culinary preference for exquisite meals.`;
-    hint = "Tip: 'craving something' = ~이 몹시 먹고 싶다";
-    phoneme = "Tip: 'craving'은 [크레이빙]처럼 길게 발음하세요!";
-  } else if (topic === "game") {
-    replyText = `That sounds like so much fun! What's the coolest part of that game, ${shortName}?`;
-    transText = `정말 재미있겠네요! 그 게임에서 가장 신나는 부분은 무엇인가요, ${shortName}님?`;
-    nativeUp = `I had a blast playing that!`;
-    advUp = `Engaging in that activity yielded immense satisfaction.`;
-    hint = "Tip: 'had a blast' = 엄청 신나게 놀았다";
-    phoneme = "Tip: 'blast'는 [블래스트]로 또렷하게 말해보세요!";
-  } else if (topic === "work") {
-    replyText = `Sounds like you've been having a productive day! How are you feeling after handling all that, ${shortName}?`;
-    transText = `정말 알찬 하루를 보내신 것 같군요! 그 일들을 다 마치고 나니 기분이 어떠신가요, ${shortName}님?`;
-    nativeUp = `I had a super busy day at work.`;
-    advUp = `I managed a high volume of professional responsibilities today.`;
-    hint = "Tip: 'productive day' = 보람차고 알찬 하루";
-    phoneme = "Tip: 'productive'는 두 번째 음절 [-덕-]에 강세를 주세요!";
-  } else if (topic === "travel") {
-    replyText = `Travel is always so exciting! Where is the one place you'd love to visit next, ${shortName}?`;
-    transText = `여행은 언제나 가슴 설레죠! ${shortName}님이 다음에 꼭 가보고 싶은 곳은 어디인가요?`;
-    nativeUp = `I can't wait to go on my next trip.`;
-    advUp = `I anticipate exploring new global destinations eagerly.`;
-    hint = "Tip: 'can't wait to' = ~하고 싶어 참을 수 없다";
-    phoneme = "Tip: 'anticipate'는 [앤티시페이트]로 둘째 음절에 강세를 주세요!";
-  } else {
-    replyText = `You mentioned "${clean}". That's really interesting! What made you think of that today, ${shortName}?`;
-    transText = `"${clean}"라고 말씀해 주셨군요. 정말 흥미로워요! 오늘 어떤 계기로 그 생각을 하시게 되었나요, ${shortName}님?`;
-    nativeUp = `I was just thinking about that earlier.`;
-    advUp = `That subject recently captured my intellectual curiosity.`;
-    hint = "Tip: 'captured my curiosity' = 나의 호기심을 사로잡았다";
-    phoneme = "Tip: 'curiosity'는 [큐리어서티]처럼 셋째 음절에 강세를 주세요!";
-  }
+  const selected = conversationResponses[(conversationTurnCount - 1) % conversationResponses.length];
 
   return {
-    reply: replyText,
-    translation: transText,
-    nativeUpgrade: nativeUp,
-    advancedUpgrade: advUp,
-    grammarHint: hint,
-    phonemeTip: phoneme
+    reply: selected.reply,
+    translation: selected.trans,
+    nativeUpgrade: selected.native,
+    advancedUpgrade: selected.adv,
+    grammarHint: selected.hint,
+    phonemeTip: selected.phoneme
   };
 }
 
@@ -980,10 +954,10 @@ function setupEventListeners() {
 
   resetBtn.addEventListener('click', () => {
     if (confirm('프로필과 대화 기록, 단어장을 모두 초기화하시겠습니까?')) {
-      localStorage.removeItem('lingo_profiles_v13');
-      localStorage.removeItem('lingo_chat_histories_v13');
-      localStorage.removeItem('lingo_profile_memories_v13');
-      localStorage.removeItem('lingo_user_flashcards_v13');
+      localStorage.removeItem('lingo_profiles_v14');
+      localStorage.removeItem('lingo_chat_histories_v14');
+      localStorage.removeItem('lingo_profile_memories_v14');
+      localStorage.removeItem('lingo_user_flashcards_v14');
       profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
       chatHistories = {};
       profileMemories = {};
