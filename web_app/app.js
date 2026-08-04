@@ -326,25 +326,38 @@ function toggleTranslation(id) {
 
 function splitTextIntoBilingualChunks(text) {
   if (!text) return [];
-  // 이모지 및 마크다운 제거
+
+  // 1. 이모지, 마크다운, 괄호 등 불필요한 서식 제거
   let clean = text.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{20E3}]/gu, '');
   clean = clean.replace(/\[.*?\]/g, '').replace(/[*_#`~]/g, '').trim();
 
-  // 한국어와 영어 구간 분리 정규식
-  const regex = /([\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF\s,.~!?]+)|([A-Za-z0-9\s,.~!?'"-]+)/g;
+  // 2. 특수기호나 문장부호 이름을 읽지 않도록 미리 다듬기
+  // 겹마침표, 겹물음표 정리
+  clean = clean.replace(/\?/g, '. ').replace(/!/g, '. ').replace(/~/g, ' ');
+
+  // 3. 한국어(한글 단어어구)와 영어(영어 단어어구)를 스마트하게 단어 단위로 토큰화
+  // 한글이 포함된 마디와 영문이 포함된 마디를 순서대로 추출
+  const tokens = clean.split(/(\s+)/);
   const chunks = [];
-  let match;
+  let currentChunk = { text: '', lang: null };
 
-  while ((match = regex.exec(clean)) !== null) {
-    const krText = match[1] ? match[1].trim() : '';
-    const enText = match[2] ? match[2].trim() : '';
+  tokens.forEach(token => {
+    if (!token) return;
+    const isKorean = /[\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF]/.test(token);
+    const lang = isKorean ? 'ko-KR' : 'en-US';
 
-    if (krText && krText.length > 0) {
-      chunks.push({ text: krText, lang: 'ko-KR' });
+    if (currentChunk.lang === lang) {
+      currentChunk.text += token;
+    } else {
+      if (currentChunk.text.trim().length > 0) {
+        chunks.push({ text: currentChunk.text.trim(), lang: currentChunk.lang });
+      }
+      currentChunk = { text: token, lang: lang };
     }
-    if (enText && enText.length > 0) {
-      chunks.push({ text: enText, lang: 'en-US' });
-    }
+  });
+
+  if (currentChunk.text.trim().length > 0) {
+    chunks.push({ text: currentChunk.text.trim(), lang: currentChunk.lang });
   }
 
   return chunks;
@@ -355,13 +368,14 @@ function speakText(text) {
   
   window.speechSynthesis.cancel();
 
+  const isQuestion = text.includes('?');
   const chunks = splitTextIntoBilingualChunks(text);
   if (chunks.length === 0) return;
 
   if (aiHumanStage) aiHumanStage.classList.add('speaking');
   startTalkingAvatarLoop();
 
-  if (lingoStatusTag) lingoStatusTag.innerText = "🗣️ Chloe 선생님이 한국어와 영어로 말하는 중...";
+  if (lingoStatusTag) lingoStatusTag.innerText = "🗣️ Chloe 선생님이 자연스럽게 설명하는 중...";
 
   let currentIdx = 0;
 
@@ -378,34 +392,36 @@ function speakText(text) {
       clearInterval(resumeTimer);
       if (aiHumanStage) aiHumanStage.classList.remove('speaking');
       stopTalkingAvatarLoop();
-      if (lingoStatusTag) lingoStatusTag.innerText = "👩‍🏫 마이크를 누르고 대화를 이어가세요!";
+      if (lingoStatusTag) lingoStatusTag.innerText = "👩‍🏫 마이크를 누르고 편하게 말씀해 주세요!";
       return;
     }
 
     const chunk = chunks[currentIdx];
     currentIdx++;
 
-    if (!chunk || !chunk.text) {
+    // 발음 시 '물음표', '점' 등을 직접 발음하지 않도록 문장부호 제거
+    let speakable = chunk.text.replace(/[^a-zA-Z0-9\s\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF']/g, ' ').trim();
+    if (!speakable) {
       playNextChunk();
       return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(chunk.text);
+    const utterance = new SpeechSynthesisUtterance(speakable);
     
     if (chunk.lang === 'ko-KR') {
       utterance.lang = 'ko-KR';
       if (naturalKrVoice) utterance.voice = naturalKrVoice;
       utterance.rate = 1.0;
-      utterance.pitch = 1.05;
+      utterance.pitch = 1.0;
     } else {
       utterance.lang = 'en-US';
       if (naturalEnVoice) utterance.voice = naturalEnVoice;
-      utterance.rate = 0.92;
-      utterance.pitch = chunk.text.endsWith('?') ? 1.12 : 1.04;
+      utterance.rate = 0.90;
+      utterance.pitch = (isQuestion && currentIdx === chunks.length) ? 1.15 : 1.02;
     }
 
     utterance.onend = () => {
-      setTimeout(playNextChunk, 100);
+      setTimeout(playNextChunk, 80);
     };
 
     utterance.onerror = (e) => {
