@@ -6,8 +6,8 @@ const DEFAULT_PROFILES = [
     roleKey: 'dad',
     age: 42,
     birthInfo: '',
-    levelText: '중급 (Intermediate)',
-    interests: ['비즈니스', '해외여행', 'IT/기술'],
+    levelText: '고급/중급 (Intermediate/Advanced)',
+    interests: ['비즈니스', '사회/정치', '해외여행', 'IT/기술'],
     totalXp: 450,
     level: 3,
     badges: ['🔥 첫 걸음', '✈️ 여행 준비'],
@@ -21,7 +21,7 @@ const DEFAULT_PROFILES = [
     age: 40,
     birthInfo: '',
     levelText: '중급 (Intermediate)',
-    interests: ['일상 생활', '요리/맛집', '문화/예술'],
+    interests: ['일상 생활', '문화/예술', '심리학', '교육'],
     totalXp: 380,
     level: 2,
     badges: ['🌱 첫 걸음', '☕ 수다왕'],
@@ -93,6 +93,8 @@ let userGeminiApiKey = '';
 let isListening = false;
 let recognition = null;
 let naturalVoices = [];
+let speechPauseTimer = null;
+let accumulatedTranscript = '';
 
 const profileSection = document.getElementById('profile-section');
 const chatSection = document.getElementById('chat-section');
@@ -163,7 +165,7 @@ function loadNaturalVoices() {
 }
 
 function loadStoredData() {
-  const savedProfiles = localStorage.getItem('lingo_profiles_v7');
+  const savedProfiles = localStorage.getItem('lingo_profiles_v8');
   if (savedProfiles) {
     profiles = JSON.parse(savedProfiles);
   } else {
@@ -171,7 +173,7 @@ function loadStoredData() {
     saveProfiles();
   }
 
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v7');
+  const savedHistories = localStorage.getItem('lingo_chat_histories_v8');
   if (savedHistories) {
     chatHistories = JSON.parse(savedHistories);
   }
@@ -181,11 +183,11 @@ function loadStoredData() {
 }
 
 function saveProfiles() {
-  localStorage.setItem('lingo_profiles_v7', JSON.stringify(profiles));
+  localStorage.setItem('lingo_profiles_v8', JSON.stringify(profiles));
 }
 
 function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v7', JSON.stringify(chatHistories));
+  localStorage.setItem('lingo_chat_histories_v8', JSON.stringify(chatHistories));
 }
 
 function renderProfiles() {
@@ -241,22 +243,22 @@ function selectProfile(id) {
 function getWelcomeMessage(profile) {
   const shortName = profile.name.split(' ')[1] || profile.name;
   if (profile.age <= 5) {
-    return `Hello ${shortName}! I am Chloe. Tell me what you did today! 🎈`;
+    return `Hello ${shortName}! I am Professor Chloe. Take your time and talk to me naturally whenever you are ready! 🎈`;
   } else if (profile.age <= 9) {
-    return `Hey ${shortName}! I am Chloe! What are you doing right now? 🎮`;
+    return `Hey ${shortName}! I am Professor Chloe! Speak comfortably—I am listening closely to everything you share. 🎮`;
   } else {
-    return `Hello ${profile.name}! I'm Chloe. What topic would you like to discuss today? ✨`;
+    return `Hello ${profile.name}! I'm Professor Chloe, your Master Pedagogy English Coach. Take all the time you need to express your thoughts on society, culture, travel, or psychology. What shall we explore today? ✨`;
   }
 }
 
 function getWelcomeTranslation(profile) {
   const shortName = profile.name.split(' ')[1] || profile.name;
   if (profile.age <= 5) {
-    return `안녕 ${shortName}! 나는 클로이야. 오늘 어떤 일을 했는지 말해줘! 🎈`;
+    return `안녕 ${shortName}! 나는 클로이 교수님이야. 천천히 편하게 생각나대로 말해보렴! 🎈`;
   } else if (profile.age <= 9) {
-    return `안녕 ${shortName}! 클로이 선생님이야! 지금 뭐 하고 있니? 🎮`;
+    return `안녕 ${shortName}! 클로이 교수님이야! 말씀 도중에 멈추셔도 끝까지 잘 듣고 있으니 편하게 말하렴. 🎮`;
   } else {
-    return `안녕하세요 ${profile.name}님! 클로이입니다. 오늘 어떤 주제에 대해 이야기해 볼까요? ✨`;
+    return `안녕하세요 ${profile.name}님! 영어 교수법 및 박학다식 전담 코치 클로이 교수입니다. 생각하시는 도중 잠시 멈추셔도 편안히 기다려 드릴 테니, 사회/문화/여행/심리 등 다양한 생각을 편하게 말씀해 주세요. ✨`;
   }
 }
 
@@ -305,7 +307,7 @@ function renderMessages() {
     if (msg.grammarHint) {
       contentHtml += `
         <div class="grammar-tip">
-          <span>💡 원어민 표현 팁:</span> ${msg.grammarHint}
+          <span>💡 원어민 고급 지도 팁:</span> ${msg.grammarHint}
         </div>
       `;
     }
@@ -335,21 +337,22 @@ function speakText(text) {
       utterance.voice = naturalVoices[0];
     }
     utterance.lang = 'en-US';
-    utterance.pitch = 1.05;
-    utterance.rate = activeProfile && activeProfile.age <= 5 ? 0.85 : 0.93;
+    utterance.pitch = 1.02;
+    utterance.rate = activeProfile && activeProfile.age <= 5 ? 0.85 : 0.92;
 
     utterance.onstart = () => {
-      updateTeacherFaceState('speaking', '👩‍🏫 클로이 선생님이 대화 중...');
+      updateTeacherFaceState('speaking', '👩‍🏫 클로이 교수님이 원어민 발음과 뉘앙스로 대화 중...');
     };
 
     utterance.onend = () => {
-      updateTeacherFaceState('idle', '👩‍🏫 아래 마이크를 누르거나 선생님을 터치해 말하세요!');
+      updateTeacherFaceState('idle', '👩‍🏫 아래 마이크를 누르거나 선생님을 터치해 여유있게 말씀하세요!');
     };
 
     window.speechSynthesis.speak(utterance);
   }
 }
 
+// 🎤 스마트 음성 인식 및 여유있는 대화 대기 버퍼 (Silence Tolerance Buffer)
 function setupSpeechRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
@@ -358,22 +361,47 @@ function setupSpeechRecognition() {
   }
 
   recognition = new SpeechRecognition();
-  recognition.continuous = false;
-  recognition.interimResults = false;
+  recognition.continuous = true; // 계속 들음
+  recognition.interimResults = true; // 중간 결과 수집
   recognition.lang = 'en-US';
 
   recognition.onstart = () => {
     isListening = true;
+    accumulatedTranscript = '';
     giantMicBtn.classList.add('listening');
     micIcon.innerText = "🔴";
     micLabel.innerText = "음성 듣는 중...";
-    lingoStatusTag.innerText = "🎤 목소리를 듣고 있어요! 말씀해 주세요...";
+    lingoStatusTag.innerText = "🎤 편하게 말씀을 이어나가세요. 클로이 교수님이 여유있게 들으며 기다리고 있어요...";
   };
 
   recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript;
-    chatInput.value = transcript;
-    handleSendMessage();
+    let interim = '';
+    let finalChunk = '';
+
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      if (event.results[i].isFinal) {
+        finalChunk += event.results[i][0].transcript;
+      } else {
+        interim += event.results[i][0].transcript;
+      }
+    }
+
+    if (finalChunk) {
+      accumulatedTranscript += (accumulatedTranscript ? ' ' : '') + finalChunk;
+    }
+
+    const currentText = accumulatedTranscript + (interim ? ' ' + interim : '');
+    chatInput.value = currentText;
+
+    // ⏱️ 사용자가 말을 잠시 멈춰도 2.2초 동안 기다린 후 대화로 연결!
+    if (speechPauseTimer) clearTimeout(speechPauseTimer);
+
+    speechPauseTimer = setTimeout(() => {
+      if (chatInput.value.trim().length > 0) {
+        stopListening();
+        handleSendMessage();
+      }
+    }, 2200); // 2.2초의 넉넉한 대기 시간
   };
 
   recognition.onerror = (e) => {
@@ -382,6 +410,9 @@ function setupSpeechRecognition() {
   };
 
   recognition.onend = () => {
+    if (isListening && chatInput.value.trim().length > 0) {
+      handleSendMessage();
+    }
     stopListening();
   };
 }
@@ -393,19 +424,26 @@ function toggleListening() {
   }
 
   if (isListening) {
+    if (speechPauseTimer) clearTimeout(speechPauseTimer);
     recognition.stop();
     stopListening();
+    if (chatInput.value.trim().length > 0) {
+      handleSendMessage();
+    }
   } else {
+    chatInput.value = '';
+    accumulatedTranscript = '';
     recognition.start();
   }
 }
 
 function stopListening() {
   isListening = false;
+  if (speechPauseTimer) clearTimeout(speechPauseTimer);
   giantMicBtn.classList.remove('listening');
   micIcon.innerText = "🎙️";
   micLabel.innerText = "눌러서 말하기";
-  lingoStatusTag.innerText = "👩‍🏫 아래 마이크를 누르거나 선생님을 터치해 말하세요!";
+  lingoStatusTag.innerText = "👩‍🏫 아래 마이크를 누르거나 선생님을 터치해 여유있게 말씀하세요!";
 }
 
 function renderQuickChips() {
@@ -414,13 +452,13 @@ function renderQuickChips() {
 
   let chips = [];
   if (activeProfile.age <= 5) {
-    chips = ["I played with toys today!", "I ate delicious snacks!", "I want to watch cartoons!"];
+    chips = ["I played with my family today!", "I ate delicious lunch!", "Can you tell me a funny story?"];
   } else if (activeProfile.age <= 7) {
-    chips = ["I played with my friends!", "I saw a huge dinosaur!", "I love drawing pictures!"];
+    chips = ["I love exploring dinosaurs!", "I played a fun game at school!", "Can you teach me a new word?"];
   } else if (activeProfile.age <= 9) {
-    chips = ["I finished my homework today!", "I listened to my favorite song!", "Let's play a fun game!"];
+    chips = ["I finished my school project!", "I love listening to music!", "Let's talk about travel!"];
   } else {
-    chips = ["I had a productive day at work.", "How can I express this naturally?", "Can you give me a travel phrase?"];
+    chips = ["What is your opinion on social psychology?", "How can I elevate my vocabulary naturally?", "Let's discuss global culture and travel."];
   }
 
   chips.forEach(text => {
@@ -451,27 +489,25 @@ async function handleSendMessage() {
   saveHistories();
   renderMessages();
 
-  updateTeacherFaceState('thinking', '🤔 클로이 선생님이 답변을 생각하고 있어요...');
+  updateTeacherFaceState('thinking', '🤔 클로이 교수님이 박학다식한 지식과 교수법으로 답변을 생각하고 있어요...');
 
   const xpEarned = text.split(' ').length >= 4 ? 30 : 20;
   const didLevelUp = addXpToActiveProfile(xpEarned);
 
-  // Gemini API 키가 있는 경우 Gemini 1.5 Flash 직접 호출
   if (userGeminiApiKey && userGeminiApiKey.trim().length > 10) {
     try {
       const resp = await fetchRealGeminiResponse(activeProfile, text);
       handleAiResponseReceived(resp, didLevelUp);
       return;
     } catch (e) {
-      console.warn("Gemini API Call fallback to contextual NLP engine", e);
+      console.warn("Gemini API Call fallback to Polymath TESOL Engine", e);
     }
   }
 
-  // 지능형 맥락(Contextual NLP) 응답 생성기: 사용자가 입력한 단어와 주제를 실시간으로 직접 읽고 대화 이어나감
   setTimeout(() => {
-    const aiResponse = generateContextualSmartResponse(activeProfile, text);
+    const aiResponse = generatePolymathTESOLResponse(activeProfile, text);
     handleAiResponseReceived(aiResponse, didLevelUp);
-  }, 800);
+  }, 900);
 }
 
 function handleAiResponseReceived(aiResponse, didLevelUp) {
@@ -495,21 +531,25 @@ function handleAiResponseReceived(aiResponse, didLevelUp) {
   }
 }
 
+// 🧠 박학다식 교수법 전문가 (TESOL/TEFL Professor + Polymath Domain Master) Gemini 1.5 Flash
 async function fetchRealGeminiResponse(profile, userText) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${userGeminiApiKey}`;
   
   const historySnippet = (chatHistories[profile.id] || [])
     .slice(-6)
-    .map(m => `${m.sender === 'user' ? 'Student' : 'Chloe'}: ${m.content}`)
+    .map(m => `${m.sender === 'user' ? 'Student' : 'Professor Chloe'}: ${m.content}`)
     .join("\n");
 
-  const systemPrompt = `You are 'Chloe', a brilliant, warm, charming bilingual AI English Tutor for ${profile.name} (Age: ${profile.age}).
-CRITICAL INSTRUCTION:
-- Read the student's message "${userText}" carefully.
-- Directly respond to what the student JUST SAID. Never use canned template responses.
-- Build upon their topic and ask a natural, interesting follow-up question.
-${profile.age <= 5 ? '- Use max 3-5 simple words.' : profile.age <= 9 ? '- Use 5-8 engaging words.' : '- Elevate vocabulary and suggest natural native idioms.'}
-Recent History:
+  const systemPrompt = `You are 'Professor Chloe', a world-class TESOL/TEFL Master Pedagogy Specialist & Polymath Scholar.
+You possess deep expertise across Society, Culture, Politics, Religion, Travel, Psychology, Education, and Philosophy.
+Pedagogical Directives for ${profile.name} (Age: ${profile.age}):
+1. LISTEN PATIENTLY: Validate the student's thought with insightful commentary.
+2. PEDAGOGICAL SCAFFOLDING: Elevate their English by introducing 1 sophisticated native idiom/collocation in context.
+3. EXTEND DIALOGUE: Ask a thought-provoking open-ended question that encourages deeper reflection on culture, society, psychology, or daily life.
+4. If student speaks Korean, translate seamlessly into native English and explain with warm encouragement.
+${profile.age <= 5 ? 'For toddlers: Max 4 simple encouraging words with high praise.' : profile.age <= 9 ? 'For kids: 5-8 fun, warm, intellectually stimulating words.' : 'For adults/parents: High-level intellectual discourse, native collocations, and psychological/cultural insights.'}
+
+Recent Conversation:
 ${historySnippet}
 
 Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammarHint": "..."}`;
@@ -518,7 +558,7 @@ Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammar
     system_instruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: 'user', parts: [{ text: userText }] }],
     generationConfig: { 
-      temperature: 0.85,
+      temperature: 0.88,
       responseMimeType: "application/json" 
     }
   };
@@ -535,73 +575,54 @@ Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammar
   return JSON.parse(jsonText);
 }
 
-// 🧠 초고성능 동적 맥락 분석 엔진 (사용자가 입력한 실제 단어/주제를 분석하여 대화가 무한 연결됨)
-function generateContextualSmartResponse(profile, userText) {
+// 🎓 박학다식 영어 교수법 지능형 대화 엔진 (사회/문화/정치/종교/여행/심리/교육 전 영역)
+function generatePolymathTESOLResponse(profile, userText) {
   const clean = userText.trim();
   const lower = clean.toLowerCase();
   const shortName = profile.name.split(' ')[1] || profile.name;
 
-  // 1. 한국어 질의 및 번역/교정 요청 분석
-  if (lower.includes("영어로") || lower.includes("뜻") || lower.includes("어떻게 말해") || lower.includes("무슨")) {
+  // 주제 분류 (사회, 심리, 교육, 여행, 문화, 종교, 정치 등)
+  let domain = "general";
+  if (lower.includes("psychology") || lower.includes("mind") || lower.includes("feel") || lower.includes("심리") || lower.includes("마음") || lower.includes("감정")) {
+    domain = "psychology";
+  } else if (lower.includes("travel") || lower.includes("trip") || lower.includes("country") || lower.includes("여행") || lower.includes("비행기") || lower.includes("문화")) {
+    domain = "travel_culture";
+  } else if (lower.includes("society") || lower.includes("politic") || lower.includes("religion") || lower.includes("사회") || lower.includes("정치") || lower.includes("종교")) {
+    domain = "society";
+  } else if (lower.includes("education") || lower.includes("teach") || lower.includes("learn") || lower.includes("교육") || lower.includes("공부") || lower.includes("영어로")) {
+    domain = "education";
+  }
+
+  if (domain === "psychology") {
     return {
-      reply: `That is a great question, ${shortName}! You can express "${clean}" naturally in English. Would you like to practice it together? ✨`,
-      translation: `정말 좋은 질문이야, ${shortName}! "${clean}"에 대한 원어민 표현을 함께 연습해 볼까? ✨`,
-      grammarHint: `Tip: "${clean}"을 영어 문장으로 완성해 보세요!`
+      reply: `Human psychology is fascinating, ${shortName}. When you say '${clean}', it touches on emotional intelligence. How do you process those emotions in daily life? 🌿`,
+      translation: `인간 심리학은 참 흥미롭습니다, ${shortName}님. "${clean}"에 관한 말씀은 감정 지능(EQ)과도 연결되네요. 일상에서 이런 감정들을 어떻게 다스리시나요? 🌿`,
+      grammarHint: "Tip: 'emotional intelligence' = 감정 지능(EQ)"
+    };
+  } else if (domain === "travel_culture") {
+    return {
+      reply: `Exploring global cultures and travel opens a whole new world, ${shortName}! Regarding '${clean}', what cultural aspect interests you most when visiting a new place? ✈️`,
+      translation: `세계 문화 탐구와 여행은 새로운 시야를 열어주죠, ${shortName}님! "${clean}"에 대해 언급하셨는데, 새로운 장소를 찾으실 때 어떤 문화적 요소에 가장 끌리시나요? ✈️`,
+      grammarHint: "Tip: 'opens a whole new world' = 완전히 새로운 세상을 열어주다"
+    };
+  } else if (domain === "society") {
+    return {
+      reply: `That is a profound perspective on society and human values, ${shortName}. Regarding '${clean}', how do you see this shaping our community's future? 🏛️`,
+      translation: `사회와 인간 가치에 관한 매우 깊이 있는 관점이십니다, ${shortName}님. "${clean}"에 대한 말씀이 우리 공동체의 미래에 어떤 영향을 줄 것이라 생각하시나요? 🏛️`,
+      grammarHint: "Tip: 'profound perspective' = 깊이 있고 심오한 관점"
+    };
+  } else if (domain === "education") {
+    return {
+      reply: `As a language educator, I love your passion for learning, ${shortName}! Regarding '${clean}', active expression is key to fluency. What goal would you like to achieve next? 🎓`,
+      translation: `언어 교육자로서 ${shortName}님의 배움에 대한 열정에 깊이 찬사를 보냅니다! "${clean}"에 관한 말씀처럼 능통함의 핵심은 적극적 표현이죠. 다음엔 어떤 목표를 달성하고 싶으신가요? 🎓`,
+      grammarHint: "Tip: 'key to fluency' = 언어 유창성의 핵심"
     };
   }
 
-  // 2. 주제(Topic) 파악 및 맥락 이어나가기
-  let mainTopic = "";
-  if (lower.includes("weather") || lower.includes("rain") || lower.includes("sun") || lower.includes("날씨") || lower.includes("비") || lower.includes("더워") || lower.includes("추워")) {
-    mainTopic = "weather";
-  } else if (lower.includes("food") || lower.includes("eat") || lower.includes("pizza") || lower.includes("rice") || lower.includes("snack") || lower.includes("먹") || lower.includes("밥") || lower.includes("맛")) {
-    mainTopic = "food";
-  } else if (lower.includes("game") || lower.includes("play") || lower.includes("toy") || lower.includes("놀") || lower.includes("게임")) {
-    mainTopic = "game";
-  } else if (lower.includes("school") || lower.includes("study") || lower.includes("friend") || lower.includes("학교") || lower.includes("친구") || lower.includes("공부")) {
-    mainTopic = "school";
-  } else if (lower.includes("work") || lower.includes("busy") || lower.includes("office") || lower.includes("회사") || lower.includes("일") || lower.includes("바빠")) {
-    mainTopic = "work";
-  }
-
-  // 3. 주제별 맥락 맞춤형 대화 연결 (사용자의 실제 발화 내용을 반영)
-  if (mainTopic === "weather") {
-    return {
-      reply: `I heard you mention the weather! Speaking of '${clean}', how is the sky looking near you right now, ${shortName}? ☀️`,
-      translation: `날씨 이야기를 해주셨군요! "${clean}"에 대해 말씀해 주셨는데, 지금 창밖 날씨는 어떤가요, ${shortName}? ☀️`,
-      grammarHint: "Tip: 'It is sunny today!' 처럼 대답해 보세요!"
-    };
-  } else if (mainTopic === "food") {
-    return {
-      reply: `Oh, speaking about food like '${clean}' makes me hungry! What is your absolute favorite dish to eat, ${shortName}? 🍕`,
-      translation: `맛있는 이야기("${clean}")를 들으니 출출해지네요! ${shortName}님이 제일 좋아하는 음식은 무엇인가요? 🍕`,
-      grammarHint: "Tip: 'I love pizza!' 라고 대답해 보세요!"
-    };
-  } else if (mainTopic === "game") {
-    return {
-      reply: `Playing and having fun with '${clean}' sounds amazing! Who do you usually play with, ${shortName}? 🎮`,
-      translation: `"${clean}" 이야기처럼 신나게 노는 건 정말 즐겁지! ${shortName}님은 보통 누구와 함께 노나요? 🎮`,
-      grammarHint: "Tip: 'I play with my family!' 처럼 대답해 보세요."
-    };
-  } else if (mainTopic === "school") {
-    return {
-      reply: `That is really interesting about '${clean}'! What subject or activity do you enjoy the most at school, ${shortName}? 📚`,
-      translation: `"${clean}"에 대한 이야기가 정말 흥미롭네요! 학교나 생활에서 가장 즐거운 활동은 무엇인가요, ${shortName}? 📚`,
-      grammarHint: null
-    };
-  } else if (mainTopic === "work") {
-    return {
-      reply: `I hear you regarding '${clean}'. Balancing daily tasks can be intense. How do you usually unwind after a long day? ☕`,
-      translation: `"${clean}"에 관한 말씀을 들으니 바쁜 하루였군요! 긴 하루를 보낸 후 보통 어떻게 휴식을 취하시나요? ☕`,
-      grammarHint: "Tip: 'unwind' = 긴장을 풀고 편안히 쉬다"
-    };
-  }
-
-  // 4. 일반 대화에 대한 맥락 이어받기 (사용자의 입력 문장을 인용하여 대화 확장)
   return {
-    reply: `You said, "${clean}". That's really interesting! Can you tell me more details about that, ${shortName}? ✨`,
-    translation: `방금 "${clean}"라고 말씀해 주셨군요! 참 흥미로워요. 그것에 대해 조금 더 자세히 이야기해 주실 수 있나요, ${shortName}? ✨`,
-    grammarHint: "Tip: 'Because...' 로 이유를 이어 말해보세요!"
+    reply: `You thoughtfully shared, "${clean}". That brings up great insights, ${shortName}! Could you elaborate a bit more on your perspective? ✨`,
+    translation: `"${clean}"라는 사려 깊은 생각을 나누어 주셨군요! 매우 뛰어난 통찰입니다, ${shortName}님. 본인의 관점에 대해 조금 더 깊이 말씀해 주실 수 있나요? ✨`,
+    grammarHint: "Tip: 'elaborate on your perspective' = 자신의 관점을 더 구체적으로 상술하다"
   };
 }
 
@@ -669,8 +690,8 @@ function setupEventListeners() {
 
   resetBtn.addEventListener('click', () => {
     if (confirm('프로필과 대화 기록을 초기화하시겠습니까?')) {
-      localStorage.removeItem('lingo_profiles_v7');
-      localStorage.removeItem('lingo_chat_histories_v7');
+      localStorage.removeItem('lingo_profiles_v8');
+      localStorage.removeItem('lingo_chat_histories_v8');
       profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
       chatHistories = {};
       saveProfiles();
