@@ -148,6 +148,7 @@ let conversationTurnCount = 0;
 let lipSyncAnimFrame = null;
 let isSpeakingAnim = false;
 let selectedPersona = 'professor';
+let recentAiReplies = [];
 
 const profileSection = document.getElementById('profile-section');
 const chatSection = document.getElementById('chat-section');
@@ -308,7 +309,7 @@ function loadNaturalVoices() {
 }
 
 function loadStoredData() {
-  const savedProfiles = localStorage.getItem('lingo_profiles_v18');
+  const savedProfiles = localStorage.getItem('lingo_profiles_v19');
   if (savedProfiles) {
     profiles = JSON.parse(savedProfiles);
   } else {
@@ -316,13 +317,13 @@ function loadStoredData() {
     saveProfiles();
   }
 
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v18');
+  const savedHistories = localStorage.getItem('lingo_chat_histories_v19');
   if (savedHistories) chatHistories = JSON.parse(savedHistories);
 
-  const savedMemories = localStorage.getItem('lingo_profile_memories_v18');
+  const savedMemories = localStorage.getItem('lingo_profile_memories_v19');
   if (savedMemories) profileMemories = JSON.parse(savedMemories);
 
-  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v18');
+  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v19');
   if (savedFlashcards) userFlashcards = JSON.parse(savedFlashcards);
 
   userGeminiApiKey = localStorage.getItem('lingo_gemini_api_key') || '';
@@ -330,19 +331,19 @@ function loadStoredData() {
 }
 
 function saveProfiles() {
-  localStorage.setItem('lingo_profiles_v18', JSON.stringify(profiles));
+  localStorage.setItem('lingo_profiles_v19', JSON.stringify(profiles));
 }
 
 function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v18', JSON.stringify(chatHistories));
+  localStorage.setItem('lingo_chat_histories_v19', JSON.stringify(chatHistories));
 }
 
 function saveMemories() {
-  localStorage.setItem('lingo_profile_memories_v18', JSON.stringify(profileMemories));
+  localStorage.setItem('lingo_profile_memories_v19', JSON.stringify(profileMemories));
 }
 
 function saveFlashcards() {
-  localStorage.setItem('lingo_user_flashcards_v18', JSON.stringify(userFlashcards));
+  localStorage.setItem('lingo_user_flashcards_v19', JSON.stringify(userFlashcards));
 }
 
 function renderLeaderboard() {
@@ -390,6 +391,7 @@ function selectProfile(id) {
   if (!activeProfile) return;
 
   conversationTurnCount = 0;
+  recentAiReplies = [];
 
   if (!profileMemories[id]) {
     profileMemories[id] = { pastTopics: [], masteredVocab: [], fluencyScore: 75, pedagogyNotes: "초기 대화 관찰 중" };
@@ -496,6 +498,14 @@ function renderMessages() {
     bubble.className = 'msg-bubble';
 
     let contentHtml = `<div>${msg.content} <button class="tts-btn" onclick="speakText('${msg.content.replace(/'/g, "\\'")}')">🔊</button></div>`;
+
+    if (msg.grammarFixNote) {
+      contentHtml += `
+        <div class="grammar-tip" style="background:#451a03; border-color:#78350f; color:#fde047; margin-top:6px;">
+          <span>🔧 문법/표현 교정 코칭:</span> ${msg.grammarFixNote}
+        </div>
+      `;
+    }
 
     if (msg.nativeUpgrade || msg.advancedUpgrade) {
       const nativeClean = (msg.nativeUpgrade || '').replace(/'/g, "\\'");
@@ -754,6 +764,25 @@ function calculateSpeechAnalytics(text) {
   }
 }
 
+function checkUserEnglishGrammar(text) {
+  const lower = text.toLowerCase().trim();
+  let fixNote = "";
+
+  if (lower.includes("yesterday") && (lower.includes(" i go ") || lower.includes(" i eat ") || lower.includes(" i play ") || lower.startsWith("i go") || lower.startsWith("i eat"))) {
+    fixNote = "어제(yesterday) 있었던 일이므로 현재형(go/eat) 대신 과거형(went/ate)을 사용하셔야 원어민 표현입니다!";
+  } else if (lower.includes("me like") || lower.includes("me eat") || lower.includes("me go")) {
+    fixNote = "주어로 목적격 'Me' 대신 주격 'I'를 사용하세요! (I like / I eat / I go)";
+  } else if (lower.includes("pizza eat") || lower.includes("game play") || lower.includes("food eat")) {
+    fixNote = "영어는 목적어가 동사 뒤로 와야 합니다! (eat pizza / play games)";
+  } else if (lower.includes("i is") || lower.includes("he go") || lower.includes("she like")) {
+    fixNote = "3인칭 단수 주어 뒤의 동사에는 -s/es를 붙이거나 수일치(he goes / she likes)를 해주는 것이 정확합니다!";
+  } else if (lower.includes("listen music") || lower.includes("go market")) {
+    fixNote = "방향과 대상을 나타낼 때 전치사 'to'를 붙여주세요! (listen to music / go to the market)";
+  }
+
+  return fixNote;
+}
+
 async function handleSendMessage() {
   const text = chatInput.value.trim();
   if (!text || !activeProfile) return;
@@ -799,6 +828,8 @@ async function handleSendMessage() {
 }
 
 function handleAiResponseReceived(aiResponse, didLevelUp, userText) {
+  const grammarFixNote = checkUserEnglishGrammar(userText);
+
   const aiMsg = {
     sender: 'ai',
     content: aiResponse.reply,
@@ -807,6 +838,7 @@ function handleAiResponseReceived(aiResponse, didLevelUp, userText) {
     phonemeTip: aiResponse.phonemeTip,
     nativeUpgrade: aiResponse.nativeUpgrade,
     advancedUpgrade: aiResponse.advancedUpgrade,
+    grammarFixNote: grammarFixNote || aiResponse.grammarFixNote,
     timestamp: new Date().toISOString()
   };
 
@@ -872,19 +904,20 @@ async function fetchRealGeminiResponse(profile, userText) {
 You are on a 1:1 live video call with ${profile.name} (Age: ${profile.age}).
 CRITICAL DIALOGUE DIRECTIVES:
 1. NEVER quote raw user strings. Respond naturally to their meaning!
-2. Speak in 1-2 SHORT, warm spoken conversational sentences.
-3. Perform 3-Stage Sentence Upgrade on user's input:
+2. Inspect user's input for grammar/tense/word-order errors and specify in 'grammarFixNote'.
+3. Speak in 1-2 SHORT, warm spoken conversational sentences.
+4. Perform 3-Stage Sentence Upgrade on user's input:
    - nativeUpgrade: Everyday natural native phrasing.
    - advancedUpgrade: C1/C2 vocabulary.
-4. reply: Spoken video response.
-5. translation: Korean translation.
-6. grammarHint: Native idiom.
-7. phonemeTip: Stress & intonation tip.
+5. reply: Spoken video response.
+6. translation: Korean translation.
+7. grammarHint: Native idiom.
+8. phonemeTip: Stress & intonation tip.
 
 Recent History:
 ${historySnippet}
 
-Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammarHint": "...", "phonemeTip": "...", "nativeUpgrade": "...", "advancedUpgrade": "..."}`;
+Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammarHint": "...", "phonemeTip": "...", "nativeUpgrade": "...", "advancedUpgrade": "...", "grammarFixNote": "..."}`;
 
   const bodyData = {
     system_instruction: { parts: [{ text: systemPrompt }] },
@@ -948,115 +981,115 @@ function generateNaturalHumanResponse(profile, userText) {
   const shortName = profile.name.split(' ')[1] || profile.name;
   const parsed = parseUserIntentAndTopic(userText);
 
-  let reply = "";
-  let trans = "";
-  let native = "";
-  let adv = "";
-  let hint = "";
-  let phoneme = "";
-
-  switch (parsed.type) {
-    case "ASK_AI":
-      reply = `I'm doing wonderful, ${shortName}! Thanks for asking. How has your day been treating you?`;
-      trans = `저는 정말 잘 지내고 있답니다, ${shortName}님! 물어봐 주셔서 감사해요. 오늘 하루는 어떻게 보내고 계신가요?`;
-      native = `I'm doing great, thanks for asking!`;
-      adv = `I am functioning exceptionally well, appreciate your inquiry!`;
-      hint = "Tip: 'doing great' = 잘 지내고 있다 (원어민 단골 회화)";
-      phoneme = "Tip: 'great'는 끝음절 [트]를 강하게 터뜨리지 않고 살짝 멈추세요!";
-      break;
-
-    case "GREETING":
-      reply = `Hello there, ${shortName}! It's so lovely to chat with you again. What's on your mind today?`;
-      trans = `안녕하세요, ${shortName}님! 다시 대화하게 되어 너무 기뻐요. 오늘 어떤 이야기를 나눠볼까요?`;
-      native = `Good to see you! What's on your mind?`;
-      adv = `Greetings! What topics shall we explore today?`;
-      hint = "Tip: 'what's on your mind' = 무슨 생각/무슨 일 있으세요?";
-      phoneme = "Tip: 'mind'는 [마인드]에서 -드 발음을 아주 작게 만드세요!";
-      break;
-
-    case "FOOD":
-      const foodName = parsed.topic;
-      reply = `Oh, ${foodName} sounds delicious, ${shortName}! Did you enjoy it, or are you planning to have some?`;
-      trans = `아, ${foodName} 이야기라니 정말 맛있겠네요, ${shortName}님! 맛있게 드셨나요, 아니면 드실 계획인가요?`;
-      native = `That sounds delicious! Did you enjoy it?`;
-      adv = `That sounds quite appetizing! Was it satisfying?`;
-      hint = "Tip: 'sounds delicious' = 들으니 정말 맛있겠다";
-      phoneme = "Tip: 'delicious'는 둘째 음절 [-리-]에 강세를 명확히 주세요!";
-      break;
-
-    case "TIRED":
-      reply = `Oh no, I'm so sorry to hear you're feeling tired, ${shortName}. Did you have a long, exhausting day?`;
-      trans = `아이구, ${shortName}님 오늘 피곤하시다니 마음이 아프네요. 오늘 많이 바쁘고 긴 하루를 보내셨나요?`;
-      native = `I hear you, did you have a long day?`;
-      adv = `I empathize with your exhaustion. Has it been a demanding day?`;
-      hint = "Tip: 'have a long day' = 하루가 길고 피곤했다";
-      phoneme = "Tip: 'exhausting'은 둘째 음절 [-지고-]에 강세를 주세요!";
-      break;
-
-    case "HAPPY":
-      reply = `That's amazing news, ${shortName}! I love hearing when you're in such high spirits. What made you so happy?`;
-      trans = `정말 멋진 소식이네요, ${shortName}님! 이렇게 기분이 좋으시다니 저도 신나요. 어떤 좋은 일이 있으셨나요?`;
-      native = `That's great! What made you so happy?`;
-      adv = `That's wonderful! What contributed to your positive mood?`;
-      hint = "Tip: 'in high spirits' = 기분이 매우 좋다/흥겹다";
-      phoneme = "Tip: 'spirits'는 첫 음절 [스피-]에 강세를 얹으세요!";
-      break;
-
-    case "GAME_HOBBY":
-      const game = parsed.topic;
-      reply = `Wow, ${game} is so much fun, ${shortName}! Tell me more about what you did while playing!`;
-      trans = `와, ${game} 정말 재미있죠, ${shortName}님! 놀면서 무엇을 했는지 조금만 더 들려주세요!`;
-      native = `That sounds so fun! Tell me more!`;
-      adv = `That sounds thoroughly entertaining! Care to elaborate?`;
-      hint = "Tip: 'tell me more' = 더 자세히 말해줘";
-      phoneme = "Tip: 'fun'은 [펀]할 때 윗니로 아랫입술을 살짝 무세요(F발음)!";
-      break;
-
-    case "WORK_SCHOOL":
-      reply = `I see! Work and school can definitely keep us busy, ${shortName}. How are you coping with everything?`;
-      trans = `아렇군요! 일이나 학업은 정말 우리를 바쁘게 만들죠, ${shortName}님. 잘 소화해 내고 계신가요?`;
-      native = `How are you handling everything?`;
-      adv = `How are you managing your workload?`;
-      hint = "Tip: 'cope with' = ~을 잘 다루다/해내다";
-      phoneme = "Tip: 'handling'은 [핸들링]으로 자연스럽게 이어서 발음하세요!";
-      break;
-
-    case "WEATHER":
-      reply = `Ah, weather really affects our day, doesn't it, ${shortName}? What's your favorite kind of weather?`;
-      trans = `아, 날씨는 정말 우리 하루 기분에 영향을 주죠, ${shortName}님? 가장 좋아하는 날씨는 어떤 날씨인가요?`;
-      native = `What's your favorite kind of weather?`;
-      adv = `Which atmospheric conditions do you prefer?`;
-      hint = "Tip: 'affects our day' = 우리의 하루에 영향을 주다";
-      phoneme = "Tip: 'weather'는 [웨더]에서 혀끝을 살짝 내밀었다 넣으세요(TH발음)!";
-      break;
-
-    case "TRAVEL":
-      reply = `Oh, traveling is always so exciting, ${shortName}! Are you planning a trip somewhere nice soon?`;
-      trans = `아, 여행은 언제나 가슴을 설레게 하죠, ${shortName}님! 조만간 멋진 곳으로 여행을 떠날 계획이신가요?`;
-      native = `Are you planning a trip somewhere nice?`;
-      adv = `Do you have any upcoming travel itineraries?`;
-      hint = "Tip: 'planning a trip' = 여행을 계획하다";
-      phoneme = "Tip: 'exciting'은 둘째 음절 [-싸이-]에 강세를 주세요!";
-      break;
-
-    default:
-      reply = `I understand what you mean, ${shortName}! That's really interesting. What else would you like to share about that?`;
-      trans = `무슨 말씀이신지 잘 이해했어요, ${shortName}님! 정말 흥미롭네요. 그에 대해 또 어떤 이야기를 나누고 싶으신가요?`;
-      native = `That's really interesting! What else?`;
-      adv = `That is quite intriguing! What further insights do you have?`;
-      hint = "Tip: 'intriguing' = 매우 흥미를 끄는";
-      phoneme = "Tip: 'intriguing'은 둘째 음절 [-트리-]에 강세를 두세요!";
-      break;
-  }
-
-  return {
-    reply,
-    translation: trans,
-    nativeUpgrade: native,
-    advancedUpgrade: adv,
-    grammarHint: hint,
-    phonemeTip: phoneme
+  const templateBank = {
+    ASK_AI: [
+      {
+        reply: `I'm doing wonderful, ${shortName}! Thanks for asking. How has your day been treating you?`,
+        trans: `저는 정말 잘 지내고 있답니다, ${shortName}님! 물어봐 주셔서 감사해요. 오늘 하루는 어떻게 보내고 계신가요?`,
+        native: `I'm doing great, thanks for asking!`,
+        adv: `I am functioning exceptionally well, appreciate your inquiry!`,
+        hint: "Tip: 'doing great' = 잘 지내고 있다 (원어민 단골 회화)",
+        phoneme: "Tip: 'great'는 끝음절 [트]를 강하게 터뜨리지 않고 살짝 멈추세요!"
+      },
+      {
+        reply: `I'm feeling great today! How about you, ${shortName}? What's new with you?`,
+        trans: `오늘 기분이 아주 좋아요! ${shortName}님은 어떠신가요? 새로운 소식이 있나요?`,
+        native: `I'm feeling great! What's new with you?`,
+        adv: `I am in optimal spirits! What recent developments have occurred?`,
+        hint: "Tip: 'what's new' = 무슨 새로운 일 있어?",
+        phoneme: "Tip: 'new'는 [뉴-]를 살짝 늘여서 발음하세요!"
+      }
+    ],
+    GREETING: [
+      {
+        reply: `Hello there, ${shortName}! It's so lovely to chat with you again. What's on your mind today?`,
+        trans: `안녕하세요, ${shortName}님! 다시 대화하게 되어 너무 기뻐요. 오늘 어떤 이야기를 나눠볼까요?`,
+        native: `Good to see you! What's on your mind?`,
+        adv: `Greetings! What topics shall we explore today?`,
+        hint: "Tip: 'what's on your mind' = 무슨 생각/무슨 일 있으세요?",
+        phoneme: "Tip: 'mind'는 [마인드]에서 -드 발음을 아주 작게 만드세요!"
+      },
+      {
+        reply: `Hey ${shortName}! So glad you stopped by to talk. How are things going?`,
+        trans: `안녕 ${shortName}님! 대화하러 찾아와줘서 반가워요. 요즘 어떻게 지내시나요?`,
+        native: `So glad you stopped by! How are things going?`,
+        adv: `Delighted by your presence! How are matters progressing?`,
+        hint: "Tip: 'stopped by' = 잠시 들르다",
+        phoneme: "Tip: 'stopped'는 [스탑트]로 명확하게 마무리를 하세요!"
+      }
+    ],
+    FOOD: [
+      {
+        reply: `Oh, ${parsed.topic} sounds delicious, ${shortName}! Did you enjoy it, or are you planning to have some?`,
+        trans: `아, ${parsed.topic} 이야기라니 정말 맛있겠네요, ${shortName}님! 맛있게 드셨나요, 아니면 드실 계획인가요?`,
+        native: `That sounds delicious! Did you enjoy it?`,
+        adv: `That sounds quite appetizing! Was it satisfying?`,
+        hint: "Tip: 'sounds delicious' = 들으니 정말 맛있겠다",
+        phoneme: "Tip: 'delicious'는 둘째 음절 [-리-]에 강세를 명확히 주세요!"
+      },
+      {
+        reply: `I love talking about food! ${parsed.topic} is such a great choice, ${shortName}. Tell me more about what you ate!`,
+        trans: `음식 이야기하는 건 늘 즐거워요! ${parsed.topic}는 정말 탁월한 선택이군요, ${shortName}님. 무엇을 드셨는지 더 말해주세요!`,
+        native: `I love talking about food! What else did you eat?`,
+        adv: `Culinary topics are intriguing! What other items did you consume?`,
+        hint: "Tip: 'great choice' = 탁월한 선택",
+        phoneme: "Tip: 'choice'는 [초이스]처럼 깔끔하게 끊어 발음하세요!"
+      }
+    ],
+    TIRED: [
+      {
+        reply: `Oh no, I'm so sorry to hear you're feeling tired, ${shortName}. Did you have a long, exhausting day?`,
+        trans: `아이구, ${shortName}님 오늘 피곤하시다니 마음이 아프네요. 오늘 많이 바쁘고 긴 하루를 보내셨나요?`,
+        native: `I hear you, did you have a long day?`,
+        adv: `I empathize with your exhaustion. Has it been a demanding day?`,
+        hint: "Tip: 'have a long day' = 하루가 길고 피곤했다",
+        phoneme: "Tip: 'exhausting'은 둘째 음절 [-지고-]에 강세를 주세요!"
+      },
+      {
+        reply: `Please take it easy today, ${shortName}. Resting is so important when you've been working hard!`,
+        trans: `오늘 좀 편안하게 쉬세요, ${shortName}님. 열심히 일하셨을 땐 쉬는 게 정말 중요해요!`,
+        native: `Please take it easy today and rest!`,
+        adv: `Prioritize recuperation today after your strenuous efforts!`,
+        hint: "Tip: 'take it easy' = 쉬엄쉬엄 해/편히 쉬어",
+        phoneme: "Tip: 'take it'은 [테이킷]으로 연음시켜 발음하세요!"
+      }
+    ],
+    GENERAL: [
+      {
+        reply: `I understand what you mean, ${shortName}! That's really interesting. What else would you like to share about that?`,
+        trans: `무슨 말씀이신지 잘 이해했어요, ${shortName}님! 정말 흥미롭네요. 그에 대해 또 어떤 이야기를 나누고 싶으신가요?`,
+        native: `That's really interesting! What else?`,
+        adv: `That is quite intriguing! What further insights do you have?`,
+        hint: "Tip: 'intriguing' = 매우 흥미를 끄는",
+        phoneme: "Tip: 'intriguing'은 둘째 음절 [-트리-]에 강세를 두세요!"
+      },
+      {
+        reply: `Thanks for sharing that with me, ${shortName}! What's the most exciting thing you want to do next?`,
+        trans: `저에게 그 이야기를 나눠주셔서 고마워요, ${shortName}님! 다음에 하고 싶은 가장 신나는 일은 무엇인가요?`,
+        native: `What's the most exciting thing you want to do next?`,
+        adv: `What prospective endeavors are you most eager to undertake?`,
+        hint: "Tip: 'sharing that with me' = 나에게 이야기를 공유해 주다",
+        phoneme: "Tip: 'exciting'은 둘째 음절 [-싸이-]에 강세를 주세요!"
+      },
+      {
+        reply: `Ah, that completely makes sense, ${shortName}! How does that make you feel overall?`,
+        trans: `아, 완전히 이해가 되는 군요, ${shortName}님! 그에 대해 전체적으로 어떤 기분이 드시나요?`,
+        native: `That makes complete sense! How do you feel?`,
+        adv: `That is entirely logical! What is your emotional evaluation?`,
+        hint: "Tip: 'overall' = 전체적으로/전반적으로",
+        phoneme: "Tip: 'overall'은 첫 음절 [오-]에 강세를 두세요!"
+      }
+    ]
   };
+
+  const pool = templateBank[parsed.type] || templateBank.GENERAL;
+
+  let candidate = pool.find(item => !recentAiReplies.includes(item.reply)) || pool[conversationTurnCount % pool.length];
+
+  recentAiReplies.push(candidate.reply);
+  if (recentAiReplies.length > 10) recentAiReplies.shift();
+
+  return candidate;
 }
 
 function renderRoleplayModal() {
@@ -1232,10 +1265,10 @@ function setupEventListeners() {
 
   resetBtn.addEventListener('click', () => {
     if (confirm('프로필과 대화 기록, 단어장을 모두 초기화하시겠습니까?')) {
-      localStorage.removeItem('lingo_profiles_v18');
-      localStorage.removeItem('lingo_chat_histories_v18');
-      localStorage.removeItem('lingo_profile_memories_v18');
-      localStorage.removeItem('lingo_user_flashcards_v18');
+      localStorage.removeItem('lingo_profiles_v19');
+      localStorage.removeItem('lingo_chat_histories_v19');
+      localStorage.removeItem('lingo_profile_memories_v19');
+      localStorage.removeItem('lingo_user_flashcards_v19');
       profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
       chatHistories = {};
       profileMemories = {};
