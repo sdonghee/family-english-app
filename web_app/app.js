@@ -79,37 +79,94 @@ function initApp() {
   // Avatar animations handled by CSS
 }
 
+function setAvatarState(state) {
+  const wrapper = document.getElementById('video-avatar-wrapper');
+  const badge = document.getElementById('avatar-state-badge');
+  const stateText = badge ? badge.querySelector('.state-text') : null;
+  
+  // 모든 상태 클래스 제거
+  if (wrapper) wrapper.classList.remove('talking', 'listening', 'thinking');
+  if (badge) badge.classList.remove('listening', 'thinking', 'speaking');
+  if (speakingIndicator) speakingIndicator.classList.remove('active');
+  
+  switch(state) {
+    case 'listening':
+      if (wrapper) wrapper.classList.add('listening');
+      if (badge) badge.classList.add('listening');
+      if (stateText) stateText.textContent = '경청 중 🎧';
+      break;
+    case 'thinking':
+      if (wrapper) wrapper.classList.add('thinking');
+      if (badge) badge.classList.add('thinking');
+      if (stateText) stateText.textContent = '생각 중 🤔';
+      break;
+    case 'speaking':
+      if (wrapper) wrapper.classList.add('talking');
+      if (badge) badge.classList.add('speaking');
+      if (stateText) stateText.textContent = '말하는 중 🗣️';
+      if (speakingIndicator) speakingIndicator.classList.add('active');
+      break;
+    default: // idle
+      if (stateText) stateText.textContent = '대기 중';
+      break;
+  }
+}
+
 function startTalkingAvatarLoop() {
   isSpeakingAnim = true;
-  const wrapper = document.getElementById('video-avatar-wrapper');
-  if (wrapper) wrapper.classList.add('talking');
-  if (speakingIndicator) speakingIndicator.classList.add('active');
+  setAvatarState('speaking');
 }
 
 function stopTalkingAvatarLoop() {
   isSpeakingAnim = false;
-  const wrapper = document.getElementById('video-avatar-wrapper');
-  if (wrapper) wrapper.classList.remove('talking');
-  if (speakingIndicator) speakingIndicator.classList.remove('active');
+  setAvatarState('idle');
 }
 
 function loadNaturalVoices() {
   if ('speechSynthesis' in window) {
     const updateVoices = () => {
       const allVoices = window.speechSynthesis.getVoices();
-      naturalVoices = allVoices.filter(v => 
-        v.lang.startsWith('en') && (
-          v.name.includes('Natural') || 
-          v.name.includes('Google') || 
-          v.name.includes('Samantha') || 
-          v.name.includes('Neural') ||
-          v.name.includes('Karen') ||
-          v.name.includes('Daniel')
-        )
+      const enVoices = allVoices.filter(v => v.lang.startsWith('en'));
+      
+      // 우선순위별 자연스러운 여성 목소리 선택
+      const priorityNames = [
+        'Google US English',       // Chrome 고품질
+        'Google UK English Female',
+        'Samantha',                // macOS/iOS 고품질
+        'Karen',                   // macOS 호주 영어
+        'Moira',                   // macOS 아일랜드
+        'Tessa',                   // macOS 남아공
+        'Microsoft Aria',          // Windows 11 자연음성
+        'Microsoft Jenny',         // Windows 11
+        'Microsoft Zira',          // Windows
+      ];
+      
+      // Natural/Neural 키워드가 있는 여성 목소리 최우선
+      const neuralVoice = enVoices.find(v => 
+        (v.name.includes('Natural') || v.name.includes('Neural')) && 
+        !v.name.includes('Male') && !v.name.includes('Guy')
       );
-      if (naturalVoices.length === 0) {
-        naturalVoices = allVoices.filter(v => v.lang.startsWith('en'));
+      
+      if (neuralVoice) {
+        naturalVoices = [neuralVoice];
+        console.log('🎙️ Selected neural voice:', neuralVoice.name);
+        return;
       }
+      
+      // 우선순위 목록에서 찾기
+      for (const name of priorityNames) {
+        const match = enVoices.find(v => v.name.includes(name));
+        if (match) {
+          naturalVoices = [match];
+          console.log('🎙️ Selected voice:', match.name);
+          return;
+        }
+      }
+      
+      // 그래도 없으면 아무 영어 여성 음성
+      naturalVoices = enVoices.filter(v => !v.name.includes('Male') && !v.name.includes('Guy'));
+      if (naturalVoices.length === 0) naturalVoices = enVoices;
+      console.log('🎙️ Fallback voice:', naturalVoices[0]?.name);
     };
 
     updateVoices();
@@ -353,6 +410,7 @@ function setupSpeechRecognition() {
   recognition.onstart = () => {
     isListening = true;
     accumulatedTranscript = '';
+    setAvatarState('listening');
     if (giantMicBtn) giantMicBtn.classList.add('listening');
     if (micIcon) micIcon.innerText = "🔴";
     if (micLabel) micLabel.innerText = "화상 통화 중...";
@@ -494,6 +552,7 @@ async function handleSendMessage() {
   saveHistories();
   renderMessages();
 
+  setAvatarState('thinking');
   if (lingoStatusTag) lingoStatusTag.innerText = "🤔 Chloe 선생님이 대화를 깊이 이해하며 생각을 정리하는 중...";
 
   try {
