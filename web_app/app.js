@@ -337,62 +337,80 @@ function toggleTranslation(id) {
 
 function cleanTextForSpeech(text) {
   if (!text) return "";
-  let clean = text.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '');
+  // 이모지만 제거, 한국어는 유지
+  let clean = text.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{20E3}]/gu, '');
   clean = clean.replace(/\[.*?\]/g, '');
   clean = clean.replace(/[*_#`~]/g, '');
+  // 한국어 부분은 TTS에서 건너뛰기 (영어만 읽기)
+  clean = clean.replace(/[\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF]+[^\s]*/g, '').replace(/\s+/g, ' ');
   return clean.trim();
 }
 
 function speakText(text) {
-  if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
-    
-    const cleanSpeech = cleanTextForSpeech(text);
-    if (!cleanSpeech) return;
+  if (!('speechSynthesis' in window)) return;
+  
+  window.speechSynthesis.cancel();
+  
+  const cleanSpeech = cleanTextForSpeech(text);
+  if (!cleanSpeech || cleanSpeech.length < 2) {
+    console.warn('No speakable text after cleaning:', text);
+    return;
+  }
 
-    const chunks = cleanSpeech.match(/[^.!?]+[.!?]+/g) || [cleanSpeech];
+  const chunks = cleanSpeech.match(/[^.!?]+[.!?]+/g) || [cleanSpeech];
 
-    if (aiHumanStage) aiHumanStage.classList.add('speaking');
-    startTalkingAvatarLoop();
+  if (aiHumanStage) aiHumanStage.classList.add('speaking');
+  startTalkingAvatarLoop();
 
-    if (lingoStatusTag) lingoStatusTag.innerText = "👩‍🏫 Chloe 선생님이 실제 입을 움직이며 화상 통화 중...";
+  if (lingoStatusTag) lingoStatusTag.innerText = "🗣️ Chloe 선생님이 말하는 중...";
 
-    let currentIdx = 0;
+  let currentIdx = 0;
 
-    const playNextChunk = () => {
-      if (currentIdx >= chunks.length) {
-        if (aiHumanStage) aiHumanStage.classList.remove('speaking');
-        stopTalkingAvatarLoop();
-        if (lingoStatusTag) lingoStatusTag.innerText = "👩‍🏫 마이크를 누르고 원어민 선생님과 실제 화상 통화를 시작하세요!";
-        return;
-      }
+  // Chrome TTS 버그 해결: 15초 이상 발화 시 멈추는 문제
+  let resumeTimer = setInterval(() => {
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.pause();
+      window.speechSynthesis.resume();
+    }
+  }, 10000);
 
-      const chunkText = chunks[currentIdx].trim();
-      currentIdx++;
+  const playNextChunk = () => {
+    if (currentIdx >= chunks.length) {
+      clearInterval(resumeTimer);
+      if (aiHumanStage) aiHumanStage.classList.remove('speaking');
+      stopTalkingAvatarLoop();
+      if (lingoStatusTag) lingoStatusTag.innerText = "👩‍🏫 마이크를 누르고 대화를 이어가세요!";
+      return;
+    }
 
-      if (!chunkText) {
-        playNextChunk();
-        return;
-      }
+    const chunkText = chunks[currentIdx].trim();
+    currentIdx++;
 
-      const utterance = new SpeechSynthesisUtterance(chunkText);
-      if (naturalVoices.length > 0) utterance.voice = naturalVoices[0];
-      utterance.lang = 'en-US';
+    if (!chunkText) {
+      playNextChunk();
+      return;
+    }
 
-      utterance.rate = 0.92;
-      utterance.pitch = chunkText.endsWith('?') ? 1.14 : 1.04;
+    const utterance = new SpeechSynthesisUtterance(chunkText);
+    if (naturalVoices.length > 0) utterance.voice = naturalVoices[0];
+    utterance.lang = 'en-US';
 
-      utterance.onend = () => {
-        setTimeout(playNextChunk, 120);
-      };
+    utterance.rate = 0.92;
+    utterance.pitch = chunkText.endsWith('?') ? 1.12 : 1.04;
 
-      utterance.onerror = () => playNextChunk();
-
-      window.speechSynthesis.speak(utterance);
+    utterance.onend = () => {
+      setTimeout(playNextChunk, 150);
     };
 
-    playNextChunk();
-  }
+    utterance.onerror = (e) => {
+      console.error('TTS error:', e);
+      playNextChunk();
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  playNextChunk();
 }
 
 function setupSpeechRecognition() {
