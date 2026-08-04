@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>🎮 6인 가족 AI 사람 영어 선생님 - Lingo Live</title>
+  <title>🎮 6인 가족 AI 사람 영어 선생님 - Lingo Live Pro</title>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#6c5ce7">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,9 +17,10 @@
     <!-- Header -->
     <header class="app-header">
       <div class="header-content">
-        <h1 class="logo">👩‍🏫 <span>Lingo</span> AI 사람 영어 선생님</h1>
+        <h1 class="logo">👩‍🏫 <span>Lingo</span> AI Pro Master</h1>
         <div class="header-actions">
-          <button id="report-btn" class="icon-btn highlight" title="학습 진행 상황 & 지난 대화 리포트">📊 학습 리포트</button>
+          <button id="deck-btn" class="icon-btn highlight-gold" title="자동 복습 단어장">🎴 단어장</button>
+          <button id="report-btn" class="icon-btn highlight" title="학습 진행 리포트">📊 리포트</button>
           <button id="settings-btn" class="icon-btn" title="클라우드 & API 설정">⚙️ 설정</button>
           <button id="reset-btn" class="reset-btn" title="데이터 새로고침">🔄</button>
         </div>
@@ -28,14 +29,25 @@
 
     <!-- Main Content Container -->
     <main class="main-content">
-      <!-- 1. Profile Selection Screen -->
+      <!-- 1. Profile Selection & Family Leaderboard Screen -->
       <section id="profile-section" class="screen active">
         <div class="banner-card">
           <div class="banner-text">
-            <h2>👋 안녕하세요! 당신의 AI 영어 전담 선생님입니다.</h2>
-            <p>실제 사람처럼 표정과 목소리로 대화해요. 지난 대화의 모든 내용과 성장 과정을 기억합니다.</p>
+            <h2>👋 Premium Free AI 영어 Master</h2>
+            <p>유료 앱(Speak, Max AI) 이상을 넘어선 3단계 문장 엘리베이터, 롤플레이, 자동 복습 단어장을 제공합니다.</p>
           </div>
-          <div class="banner-icon">👩‍🏫</div>
+          <div class="banner-icon">👑</div>
+        </div>
+
+        <!-- 6인 가족 랭킹 리더보드 & 불꽃 챌린지 -->
+        <div class="leaderboard-card">
+          <div class="leaderboard-header">
+            <h3>🔥 6인 가족 불꽃 챌린지 & 랭킹</h3>
+            <span class="streak-badge" id="family-total-streak">🔥 가족 연승 3일차</span>
+          </div>
+          <div id="leaderboard-list" class="leaderboard-list">
+            <!-- Dynamic leaderboard rows -->
+          </div>
         </div>
 
         <h3 class="section-title">👨‍👩‍👧‍👦 대화할 사람 선택 (6명)</h3>
@@ -48,7 +60,8 @@
       <section id="chat-section" class="screen">
         <!-- Top Bar inside Chat -->
         <div class="chat-top-bar">
-          <button id="back-to-profiles-btn" class="icon-btn">◀ 프로필 선택</button>
+          <button id="back-to-profiles-btn" class="icon-btn">◀ 프로필</button>
+          <button id="roleplay-btn" class="icon-btn roleplay-tag">🎭 실전 롤플레이</button>
           <div id="active-profile-header" class="active-profile-header">
             <!-- Active profile snippet -->
           </div>
@@ -73,7 +86,6 @@
         <!-- REALISTIC AI HUMAN TEACHER VIDEO STAGE -->
         <div class="ai-human-stage" id="ai-human-stage" title="선생님 얼굴이나 아래 마이크 버튼을 눌러 말하세요!">
           <div id="ai-teacher-avatar" class="ai-teacher-avatar idle">
-            <!-- Animated AI Human Teacher Face -->
             <div class="teacher-face">
               <div class="teacher-eyes">
                 <div class="eye left"></div>
@@ -81,9 +93,9 @@
               </div>
               <div id="teacher-mouth" class="teacher-mouth idle"></div>
             </div>
-            <div class="video-badge">🔴 Live AI Teacher</div>
+            <div class="video-badge">🔴 Live Prof. Chloe</div>
           </div>
-          <div id="lingo-status-tag" class="lingo-status-tag">👩‍🏫 지난 대화를 모두 기억하며 대화 중입니다!</div>
+          <div id="lingo-status-tag" class="lingo-status-tag">👩‍🏫 3단계 문장 교정 및 원어민 발음 피드백 가동 중</div>
         </div>
 
         <!-- Messages Area -->
@@ -106,7 +118,7 @@
           </button>
         </div>
 
-        <!-- Text Input Bar (Collapsible/Optional) -->
+        <!-- Text Input Bar -->
         <div class="chat-input-bar">
           <input type="text" id="chat-input" placeholder="키보드로 입력하거나 위 마이크를 누르세요..." autocomplete="off" />
           <button id="send-btn" class="send-btn">
@@ -115,6 +127,38 @@
         </div>
       </section>
     </main>
+
+    <!-- 🎭 20+ Real-World Roleplay Selector Modal -->
+    <div id="roleplay-modal" class="modal-overlay hidden">
+      <div class="modal-card text-left">
+        <h3>🎭 20+ 실전 라이브 롤플레이 퀘스트</h3>
+        <p class="sub-desc">원하는 상황을 선택하면 클로이 교수님이 역할극 상대방으로 변신합니다!</p>
+        
+        <div class="roleplay-grid" id="roleplay-grid">
+          <!-- Dynamic roleplay scenario chips -->
+        </div>
+        
+        <div class="modal-btn-row">
+          <button id="close-roleplay-btn" class="modal-btn secondary">취소 및 자유 대화</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 🎴 Spaced Repetition Vocabulary Deck Modal -->
+    <div id="deck-modal" class="modal-overlay hidden">
+      <div class="modal-card text-left">
+        <h3>🎴 에빙하우스 자동 복습 단어장</h3>
+        <p class="sub-desc">대화하며 교정받은 원어민 표현들이 자동으로 수집된 단어장입니다.</p>
+        
+        <div id="deck-card-container" class="deck-card-container">
+          <!-- Dynamic flashcard list -->
+        </div>
+
+        <div class="modal-btn-row">
+          <button id="close-deck-btn" class="modal-btn">닫기 🚀</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Follow-Up Learning Report Modal -->
     <div id="report-modal" class="modal-overlay hidden">
