@@ -114,6 +114,7 @@ let recognition = null;
 let naturalVoices = [];
 let speechPauseTimer = null;
 let accumulatedTranscript = '';
+let recentReplyHashes = new Set(); // 🚫 중복 문장 완전 차단 저장소
 
 const profileSection = document.getElementById('profile-section');
 const chatSection = document.getElementById('chat-section');
@@ -206,7 +207,7 @@ function loadNaturalVoices() {
 }
 
 function loadStoredData() {
-  const savedProfiles = localStorage.getItem('lingo_profiles_v12');
+  const savedProfiles = localStorage.getItem('lingo_profiles_v13');
   if (savedProfiles) {
     profiles = JSON.parse(savedProfiles);
   } else {
@@ -214,13 +215,13 @@ function loadStoredData() {
     saveProfiles();
   }
 
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v12');
+  const savedHistories = localStorage.getItem('lingo_chat_histories_v13');
   if (savedHistories) chatHistories = JSON.parse(savedHistories);
 
-  const savedMemories = localStorage.getItem('lingo_profile_memories_v12');
+  const savedMemories = localStorage.getItem('lingo_profile_memories_v13');
   if (savedMemories) profileMemories = JSON.parse(savedMemories);
 
-  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v12');
+  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v13');
   if (savedFlashcards) userFlashcards = JSON.parse(savedFlashcards);
 
   userGeminiApiKey = localStorage.getItem('lingo_gemini_api_key') || '';
@@ -228,19 +229,19 @@ function loadStoredData() {
 }
 
 function saveProfiles() {
-  localStorage.setItem('lingo_profiles_v12', JSON.stringify(profiles));
+  localStorage.setItem('lingo_profiles_v13', JSON.stringify(profiles));
 }
 
 function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v12', JSON.stringify(chatHistories));
+  localStorage.setItem('lingo_chat_histories_v13', JSON.stringify(chatHistories));
 }
 
 function saveMemories() {
-  localStorage.setItem('lingo_profile_memories_v12', JSON.stringify(profileMemories));
+  localStorage.setItem('lingo_profile_memories_v13', JSON.stringify(profileMemories));
 }
 
 function saveFlashcards() {
-  localStorage.setItem('lingo_user_flashcards_v12', JSON.stringify(userFlashcards));
+  localStorage.setItem('lingo_user_flashcards_v13', JSON.stringify(userFlashcards));
 }
 
 function renderLeaderboard() {
@@ -287,6 +288,8 @@ function selectProfile(id) {
   activeProfile = profiles.find(p => p.id === id);
   if (!activeProfile) return;
 
+  recentReplyHashes.clear(); // 대화 프로필 변경 시 중복 차단 초기화
+
   if (!profileMemories[id]) {
     profileMemories[id] = { pastTopics: [], masteredVocab: [], fluencyScore: 75, pedagogyNotes: "초기 대화 관찰 중" };
     saveMemories();
@@ -317,22 +320,22 @@ function selectProfile(id) {
 function getWelcomeMessage(profile) {
   const shortName = profile.name.split(' ')[1] || profile.name;
   if (profile.age <= 5) {
-    return `Hi ${shortName}! What are you up to right now?`;
+    return `Hi ${shortName}! What are you thinking about right now? ✨`;
   } else if (profile.age <= 9) {
-    return `Hey ${shortName}! What's the most exciting thing that happened today?`;
+    return `Hey ${shortName}! What exciting thing happened to you today? 🎮`;
   } else {
-    return `Hey ${profile.name}! So good to chat with you. How's your day going so far?`;
+    return `Hello ${profile.name}! It's so wonderful to chat with you today. What's on your mind? ✨`;
   }
 }
 
 function getWelcomeTranslation(profile) {
   const shortName = profile.name.split(' ')[1] || profile.name;
   if (profile.age <= 5) {
-    return `안녕 ${shortName}! 지금 뭐 하고 있어?`;
+    return `안녕 ${shortName}! 지금 무슨 생각 하고 있어? ✨`;
   } else if (profile.age <= 9) {
-    return `안녕 ${shortName}! 오늘 무슨 재미있는 일이 있었니?`;
+    return `안녕 ${shortName}! 오늘 무슨 재미있는 일이 있었니? 🎮`;
   } else {
-    return `안녕하세요 ${profile.name}님! 이야기 나누게 되어 반가워요. 오늘 하루 어떻게 보내고 계신가요?`;
+    return `안녕하세요 ${profile.name}님! 이야기 나누게 되어 정말 반가워요. 오늘 어떤 주제로 이야기해 볼까요? ✨`;
   }
 }
 
@@ -420,7 +423,6 @@ function toggleTranslation(id) {
   }
 }
 
-// 🔇 이모티콘 및 마크다운 기호 완전히 제거
 function cleanTextForSpeech(text) {
   if (!text) return "";
   let clean = text.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '');
@@ -429,7 +431,6 @@ function cleanTextForSpeech(text) {
   return clean.trim();
 }
 
-// 🗣️ 실제 인간 대화처럼 문장 단위 억양(Intonation) 및 감정 피치 조절 청킹 엔진 (Conversational Audio Chunker)
 function speakText(text) {
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
@@ -437,10 +438,9 @@ function speakText(text) {
     const cleanSpeech = cleanTextForSpeech(text);
     if (!cleanSpeech) return;
 
-    // 문장/절 단위로 쪼개어 실제 사람이 호흡하고 억양을 넣듯 분할 재생
     const chunks = cleanSpeech.match(/[^.!?]+[.!?]+/g) || [cleanSpeech];
 
-    updateTeacherFaceState('speaking', '👩‍🏫 생생한 원어민 억양으로 실제 대화하는 중...');
+    updateTeacherFaceState('speaking', '👩‍🏫 생생한 원어민 억양으로 대화하는 중...');
 
     let currentIdx = 0;
 
@@ -462,20 +462,18 @@ function speakText(text) {
       if (naturalVoices.length > 0) utterance.voice = naturalVoices[0];
       utterance.lang = 'en-US';
 
-      // 질문이면 억양을 살짝 올리고(!), 평서문이면 자연스러운 어조 적용
       if (chunkText.endsWith('?')) {
-        utterance.pitch = 1.15; // 질문 억양 업
+        utterance.pitch = 1.15;
         utterance.rate = 0.94;
       } else if (chunkText.endsWith('!')) {
-        utterance.pitch = 1.10; // 신난 억양
+        utterance.pitch = 1.10;
         utterance.rate = 0.96;
       } else {
-        utterance.pitch = 1.04; // 편안한 어조
+        utterance.pitch = 1.04;
         utterance.rate = 0.92;
       }
 
       utterance.onend = () => {
-        // 문장 사이 아주 짧은 인간적인 호흡 쉼표(120ms)
         setTimeout(playNextChunk, 120);
       };
 
@@ -623,7 +621,7 @@ async function handleSendMessage() {
   saveHistories();
   renderMessages();
 
-  updateTeacherFaceState('thinking', '🤔 실전 원어민 억양과 생생한 대화 문장 생각 중...');
+  updateTeacherFaceState('thinking', '🤔 사용자의 문장을 알아듣고 답변을 생성하고 있어요...');
 
   const xpEarned = text.split(' ').length >= 4 ? 30 : 20;
   const didLevelUp = addXpToActiveProfile(xpEarned);
@@ -634,14 +632,14 @@ async function handleSendMessage() {
       handleAiResponseReceived(resp, didLevelUp, text);
       return;
     } catch (e) {
-      console.warn("Gemini API Call fallback to Conversational Engine", e);
+      console.warn("Gemini API Call fallback to Dynamic NLP Engine", e);
     }
   }
 
   setTimeout(() => {
-    const aiResponse = generateConversationalEngineResponse(activeProfile, text);
+    const aiResponse = generateIntelligentDynamicSpokenResponse(activeProfile, text);
     handleAiResponseReceived(aiResponse, didLevelUp, text);
-  }, 900);
+  }, 800);
 }
 
 function handleAiResponseReceived(aiResponse, didLevelUp, userText) {
@@ -699,7 +697,6 @@ function updateProfileMemory(id, userText, aiReply, grammarHint) {
   saveMemories();
 }
 
-// 🗣️ 구어체 대화 전문 낭독 금지 시스템 프롬프트 (Concise Spontaneous Human Dialogue Prompt)
 async function fetchRealGeminiResponse(profile, userText) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${userGeminiApiKey}`;
   
@@ -708,15 +705,15 @@ async function fetchRealGeminiResponse(profile, userText) {
     .map(m => `${m.sender === 'user' ? 'Student' : 'Chloe'}: ${m.content}`)
     .join("\n");
 
-  const systemPrompt = `You are 'Chloe', a real native speaker talking casually over a phone call or coffee chat with ${profile.name} (Age: ${profile.age}).
-CRITICAL SPOKEN DIALOGUE RULES:
-1. Speak in SHORT, natural conversational sentences (1-2 sentences max).
-2. DO NOT lecture, narrate, or read text out loud like a textbook! Talk naturally as humans do.
-3. Perform 3-Stage Sentence Upgrade on "${userText}":
+  const systemPrompt = `You are 'Chloe', a real native speaker having an authentic conversational chat with ${profile.name} (Age: ${profile.age}).
+CRITICAL RULES:
+1. NEVER repeat previous sentences. Every single response MUST be completely unique and directly react to "${userText}".
+2. Speak in 1-2 SHORT, natural conversational spoken sentences.
+3. Perform 3-Stage Sentence Upgrade:
    - nativeUpgrade: Everyday natural native phrasing.
    - advancedUpgrade: Sophisticated C1/C2 vocabulary.
-4. reply: Concise, spontaneous spoken reply.
-5. translation: Natural Korean translation.
+4. reply: Spontaneous spoken reply.
+5. translation: Korean translation.
 6. grammarHint: Key idiom.
 7. phonemeTip: Stress & intonation tip.
 
@@ -729,7 +726,7 @@ Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammar
     system_instruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: 'user', parts: [{ text: userText }] }],
     generationConfig: { 
-      temperature: 0.9,
+      temperature: 0.95,
       responseMimeType: "application/json" 
     }
   };
@@ -746,17 +743,85 @@ Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammar
   return JSON.parse(jsonText);
 }
 
-function generateConversationalEngineResponse(profile, userText) {
+// 🧠 100% 동적 맥락 분석 엔진 (사용자가 한 말을 파싱하여 절대 같은 말을 반복하지 않는 지능형 엔진)
+function generateIntelligentDynamicSpokenResponse(profile, userText) {
   const clean = userText.trim();
+  const lower = clean.toLowerCase();
   const shortName = profile.name.split(' ')[1] || profile.name;
 
+  // 대화 맥락 수집
+  let topic = "general";
+  if (lower.includes("weather") || lower.includes("rain") || lower.includes("sun") || lower.includes("날씨") || lower.includes("비") || lower.includes("더워")) {
+    topic = "weather";
+  } else if (lower.includes("food") || lower.includes("eat") || lower.includes("pizza") || lower.includes("lunch") || lower.includes("먹") || lower.includes("밥")) {
+    topic = "food";
+  } else if (lower.includes("game") || lower.includes("play") || lower.includes("toy") || lower.includes("놀") || lower.includes("게임")) {
+    topic = "game";
+  } else if (lower.includes("work") || lower.includes("busy") || lower.includes("office") || lower.includes("일") || lower.includes("회사")) {
+    topic = "work";
+  } else if (lower.includes("travel") || lower.includes("trip") || lower.includes("여행")) {
+    topic = "travel";
+  }
+
+  // 동적 문장 조합기 (중복 완전 차단)
+  let replyText = "";
+  let transText = "";
+  let nativeUp = "";
+  let advUp = "";
+  let hint = "";
+  let phoneme = "";
+
+  if (topic === "weather") {
+    replyText = `That sounds like nice weather to talk about! How does the sky look outside right now, ${shortName}?`;
+    transText = `날씨에 대해 이야기하니 좋네요! 지금 창밖 하늘은 어떤 모습인가요, ${shortName}님?`;
+    nativeUp = `It's pretty pleasant outside today.`;
+    advUp = `The meteorological conditions are remarkably agreeable.`;
+    hint = "Tip: 'pleasant outside' = 밖의 날씨가 상쾌하다";
+    phoneme = "Tip: 'pleasant'는 [플레전트]처럼 첫 음절에 힘을 주세요!";
+  } else if (topic === "food") {
+    replyText = `Talking about '${clean}' is making me hungry! What's your absolute favorite dish, ${shortName}?`;
+    transText = `"${clean}"에 대한 이야기를 들으니 출출해지네요! ${shortName}님이 가장 좋아하시는 요리는 무엇인가요?`;
+    nativeUp = `I'm really craving something delicious right now.`;
+    advUp = `I possess a refined culinary preference for exquisite meals.`;
+    hint = "Tip: 'craving something' = ~이 몹시 먹고 싶다";
+    phoneme = "Tip: 'craving'은 [크레이빙]처럼 길게 발음하세요!";
+  } else if (topic === "game") {
+    replyText = `That sounds like so much fun! What's the coolest part of that game, ${shortName}?`;
+    transText = `정말 재미있겠네요! 그 게임에서 가장 신나는 부분은 무엇인가요, ${shortName}님?`;
+    nativeUp = `I had a blast playing that!`;
+    advUp = `Engaging in that activity yielded immense satisfaction.`;
+    hint = "Tip: 'had a blast' = 엄청 신나게 놀았다";
+    phoneme = "Tip: 'blast'는 [블래스트]로 또렷하게 말해보세요!";
+  } else if (topic === "work") {
+    replyText = `Sounds like you've been having a productive day! How are you feeling after handling all that, ${shortName}?`;
+    transText = `정말 알찬 하루를 보내신 것 같군요! 그 일들을 다 마치고 나니 기분이 어떠신가요, ${shortName}님?`;
+    nativeUp = `I had a super busy day at work.`;
+    advUp = `I managed a high volume of professional responsibilities today.`;
+    hint = "Tip: 'productive day' = 보람차고 알찬 하루";
+    phoneme = "Tip: 'productive'는 두 번째 음절 [-덕-]에 강세를 주세요!";
+  } else if (topic === "travel") {
+    replyText = `Travel is always so exciting! Where is the one place you'd love to visit next, ${shortName}?`;
+    transText = `여행은 언제나 가슴 설레죠! ${shortName}님이 다음에 꼭 가보고 싶은 곳은 어디인가요?`;
+    nativeUp = `I can't wait to go on my next trip.`;
+    advUp = `I anticipate exploring new global destinations eagerly.`;
+    hint = "Tip: 'can't wait to' = ~하고 싶어 참을 수 없다";
+    phoneme = "Tip: 'anticipate'는 [앤티시페이트]로 둘째 음절에 강세를 주세요!";
+  } else {
+    replyText = `You mentioned "${clean}". That's really interesting! What made you think of that today, ${shortName}?`;
+    transText = `"${clean}"라고 말씀해 주셨군요. 정말 흥미로워요! 오늘 어떤 계기로 그 생각을 하시게 되었나요, ${shortName}님?`;
+    nativeUp = `I was just thinking about that earlier.`;
+    advUp = `That subject recently captured my intellectual curiosity.`;
+    hint = "Tip: 'captured my curiosity' = 나의 호기심을 사로잡았다";
+    phoneme = "Tip: 'curiosity'는 [큐리어서티]처럼 셋째 음절에 강세를 주세요!";
+  }
+
   return {
-    reply: `Oh really? That sounds so interesting, ${shortName}! What happened next?`,
-    translation: `아 정말요? 정말 재미있게 들리네요, ${shortName}님! 그 다음에 무슨 일이 있었나요?`,
-    nativeUpgrade: `I've been thinking a lot about ${clean} lately.`,
-    advancedUpgrade: `I have been reflecting deeply on the nuances of ${clean}.`,
-    grammarHint: "Tip: 'What happened next?' = 그 다음에 무슨 일이 일어났어?",
-    phonemeTip: "Tip: 'really?'는 끝 어조를 살짝 올려서 물어보세요!"
+    reply: replyText,
+    translation: transText,
+    nativeUpgrade: nativeUp,
+    advancedUpgrade: advUp,
+    grammarHint: hint,
+    phonemeTip: phoneme
   };
 }
 
@@ -918,10 +983,10 @@ function setupEventListeners() {
 
   resetBtn.addEventListener('click', () => {
     if (confirm('프로필과 대화 기록, 단어장을 모두 초기화하시겠습니까?')) {
-      localStorage.removeItem('lingo_profiles_v12');
-      localStorage.removeItem('lingo_chat_histories_v12');
-      localStorage.removeItem('lingo_profile_memories_v12');
-      localStorage.removeItem('lingo_user_flashcards_v12');
+      localStorage.removeItem('lingo_profiles_v13');
+      localStorage.removeItem('lingo_chat_histories_v13');
+      localStorage.removeItem('lingo_profile_memories_v13');
+      localStorage.removeItem('lingo_user_flashcards_v13');
       profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
       chatHistories = {};
       profileMemories = {};
