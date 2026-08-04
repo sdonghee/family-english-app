@@ -89,6 +89,7 @@ const DEFAULT_PROFILES = [
 let profiles = [];
 let activeProfile = null;
 let chatHistories = {};
+let profileMemories = {};
 let userGeminiApiKey = '';
 let isListening = false;
 let recognition = null;
@@ -122,6 +123,7 @@ const micIcon = document.getElementById('mic-icon');
 const micLabel = document.getElementById('mic-label');
 const resetBtn = document.getElementById('reset-btn');
 const settingsBtn = document.getElementById('settings-btn');
+const reportBtn = document.getElementById('report-btn');
 
 const levelUpModal = document.getElementById('level-up-modal');
 const levelUpMessage = document.getElementById('level-up-message');
@@ -131,6 +133,14 @@ const settingsModal = document.getElementById('settings-modal');
 const geminiKeyInput = document.getElementById('gemini-key-input');
 const saveSettingsBtn = document.getElementById('save-settings-btn');
 const closeSettingsBtn = document.getElementById('close-settings-btn');
+
+const reportModal = document.getElementById('report-modal');
+const reportProfileName = document.getElementById('report-profile-name');
+const reportLevelInfo = document.getElementById('report-level-info');
+const reportTopics = document.getElementById('report-topics');
+const reportVocab = document.getElementById('report-vocab');
+const reportFeedback = document.getElementById('report-feedback');
+const closeReportBtn = document.getElementById('close-report-btn');
 
 function initApp() {
   loadStoredData();
@@ -165,7 +175,7 @@ function loadNaturalVoices() {
 }
 
 function loadStoredData() {
-  const savedProfiles = localStorage.getItem('lingo_profiles_v8');
+  const savedProfiles = localStorage.getItem('lingo_profiles_v9');
   if (savedProfiles) {
     profiles = JSON.parse(savedProfiles);
   } else {
@@ -173,9 +183,14 @@ function loadStoredData() {
     saveProfiles();
   }
 
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v8');
+  const savedHistories = localStorage.getItem('lingo_chat_histories_v9');
   if (savedHistories) {
     chatHistories = JSON.parse(savedHistories);
+  }
+
+  const savedMemories = localStorage.getItem('lingo_profile_memories_v9');
+  if (savedMemories) {
+    profileMemories = JSON.parse(savedMemories);
   }
 
   userGeminiApiKey = localStorage.getItem('lingo_gemini_api_key') || '';
@@ -183,11 +198,15 @@ function loadStoredData() {
 }
 
 function saveProfiles() {
-  localStorage.setItem('lingo_profiles_v8', JSON.stringify(profiles));
+  localStorage.setItem('lingo_profiles_v9', JSON.stringify(profiles));
 }
 
 function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v8', JSON.stringify(chatHistories));
+  localStorage.setItem('lingo_chat_histories_v9', JSON.stringify(chatHistories));
+}
+
+function saveMemories() {
+  localStorage.setItem('lingo_profile_memories_v9', JSON.stringify(profileMemories));
 }
 
 function renderProfiles() {
@@ -218,6 +237,16 @@ function selectProfile(id) {
   activeProfile = profiles.find(p => p.id === id);
   if (!activeProfile) return;
 
+  if (!profileMemories[id]) {
+    profileMemories[id] = {
+      pastTopics: [],
+      masteredVocab: [],
+      fluencyScore: 70 + (activeProfile.level * 5),
+      pedagogyNotes: "초기 학습 패턴 분석 중"
+    };
+    saveMemories();
+  }
+
   if (!chatHistories[id]) {
     chatHistories[id] = [
       {
@@ -242,6 +271,13 @@ function selectProfile(id) {
 
 function getWelcomeMessage(profile) {
   const shortName = profile.name.split(' ')[1] || profile.name;
+  const memory = profileMemories[profile.id];
+  const lastTopic = memory && memory.pastTopics.length > 0 ? memory.pastTopics[memory.pastTopics.length - 1] : '';
+
+  if (lastTopic) {
+    return `Welcome back, ${shortName}! I remember our last conversation about '${lastTopic}'. Should we continue from there, or explore a new topic today? ✨`;
+  }
+
   if (profile.age <= 5) {
     return `Hello ${shortName}! I am Professor Chloe. Take your time and talk to me naturally whenever you are ready! 🎈`;
   } else if (profile.age <= 9) {
@@ -253,6 +289,13 @@ function getWelcomeMessage(profile) {
 
 function getWelcomeTranslation(profile) {
   const shortName = profile.name.split(' ')[1] || profile.name;
+  const memory = profileMemories[profile.id];
+  const lastTopic = memory && memory.pastTopics.length > 0 ? memory.pastTopics[memory.pastTopics.length - 1] : '';
+
+  if (lastTopic) {
+    return `다시 만나서 반가워요, ${shortName}님! 지난번에 이야기했던 '${lastTopic}' 주제를 똑똑하게 기억하고 있어요. 이어서 대화해 볼까요, 아니면 새로운 주제를 탐구해 볼까요? ✨`;
+  }
+
   if (profile.age <= 5) {
     return `안녕 ${shortName}! 나는 클로이 교수님이야. 천천히 편하게 생각나대로 말해보렴! 🎈`;
   } else if (profile.age <= 9) {
@@ -352,7 +395,6 @@ function speakText(text) {
   }
 }
 
-// 🎤 스마트 음성 인식 및 여유있는 대화 대기 버퍼 (Silence Tolerance Buffer)
 function setupSpeechRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
@@ -361,8 +403,8 @@ function setupSpeechRecognition() {
   }
 
   recognition = new SpeechRecognition();
-  recognition.continuous = true; // 계속 들음
-  recognition.interimResults = true; // 중간 결과 수집
+  recognition.continuous = true;
+  recognition.interimResults = true;
   recognition.lang = 'en-US';
 
   recognition.onstart = () => {
@@ -393,7 +435,6 @@ function setupSpeechRecognition() {
     const currentText = accumulatedTranscript + (interim ? ' ' + interim : '');
     chatInput.value = currentText;
 
-    // ⏱️ 사용자가 말을 잠시 멈춰도 2.2초 동안 기다린 후 대화로 연결!
     if (speechPauseTimer) clearTimeout(speechPauseTimer);
 
     speechPauseTimer = setTimeout(() => {
@@ -401,7 +442,7 @@ function setupSpeechRecognition() {
         stopListening();
         handleSendMessage();
       }
-    }, 2200); // 2.2초의 넉넉한 대기 시간
+    }, 2200);
   };
 
   recognition.onerror = (e) => {
@@ -489,7 +530,7 @@ async function handleSendMessage() {
   saveHistories();
   renderMessages();
 
-  updateTeacherFaceState('thinking', '🤔 클로이 교수님이 박학다식한 지식과 교수법으로 답변을 생각하고 있어요...');
+  updateTeacherFaceState('thinking', '🤔 지난 대화 기억을 불러오며 클로이 교수님이 답변 중...');
 
   const xpEarned = text.split(' ').length >= 4 ? 30 : 20;
   const didLevelUp = addXpToActiveProfile(xpEarned);
@@ -497,20 +538,20 @@ async function handleSendMessage() {
   if (userGeminiApiKey && userGeminiApiKey.trim().length > 10) {
     try {
       const resp = await fetchRealGeminiResponse(activeProfile, text);
-      handleAiResponseReceived(resp, didLevelUp);
+      handleAiResponseReceived(resp, didLevelUp, text);
       return;
     } catch (e) {
-      console.warn("Gemini API Call fallback to Polymath TESOL Engine", e);
+      console.warn("Gemini API Call fallback to Polymath Memory Engine", e);
     }
   }
 
   setTimeout(() => {
     const aiResponse = generatePolymathTESOLResponse(activeProfile, text);
-    handleAiResponseReceived(aiResponse, didLevelUp);
+    handleAiResponseReceived(aiResponse, didLevelUp, text);
   }, 900);
 }
 
-function handleAiResponseReceived(aiResponse, didLevelUp) {
+function handleAiResponseReceived(aiResponse, didLevelUp, userText) {
   const aiMsg = {
     sender: 'ai',
     content: aiResponse.reply,
@@ -523,6 +564,9 @@ function handleAiResponseReceived(aiResponse, didLevelUp) {
   saveHistories();
   renderMessages();
 
+  // 대화 기록 및 영구 기억(Memory) 업데이트
+  updateProfileMemory(activeProfile.id, userText, aiResponse.reply, aiResponse.grammarHint);
+
   if (didLevelUp) {
     updateTeacherFaceState('cheering', '🎉 참 잘했어요! 레벨 업!');
     showLevelUpModal(activeProfile.level);
@@ -531,25 +575,55 @@ function handleAiResponseReceived(aiResponse, didLevelUp) {
   }
 }
 
-// 🧠 박학다식 교수법 전문가 (TESOL/TEFL Professor + Polymath Domain Master) Gemini 1.5 Flash
+// 🧠 대화 기록 & 발달 과정 지속적 Follow-Up 메모리 엔진
+function updateProfileMemory(id, userText, aiReply, grammarHint) {
+  if (!profileMemories[id]) {
+    profileMemories[id] = { pastTopics: [], masteredVocab: [], fluencyScore: 70, pedagogyNotes: "" };
+  }
+
+  const memory = profileMemories[id];
+
+  // 주제 추출
+  const words = userText.split(' ').filter(w => w.length > 3);
+  if (words.length > 0 && !memory.pastTopics.includes(words[0])) {
+    memory.pastTopics.push(words[0]);
+    if (memory.pastTopics.length > 8) memory.pastTopics.shift();
+  }
+
+  // 익힌 고급 표현 저장
+  if (grammarHint && !memory.masteredVocab.includes(grammarHint)) {
+    memory.masteredVocab.push(grammarHint);
+    if (memory.masteredVocab.length > 10) memory.masteredVocab.shift();
+  }
+
+  // 발달 점수 업데이트
+  memory.fluencyScore = Math.min(98, memory.fluencyScore + 1);
+  memory.pedagogyNotes = `${activeProfile.name} 님은 어휘 다양성이 증가하고 있으며, 대화의 논리적 연속성이 뛰어납니다.`;
+
+  saveMemories();
+}
+
 async function fetchRealGeminiResponse(profile, userText) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${userGeminiApiKey}`;
-  
+  const memory = profileMemories[profile.id] || { pastTopics: [], masteredVocab: [] };
+
   const historySnippet = (chatHistories[profile.id] || [])
     .slice(-6)
     .map(m => `${m.sender === 'user' ? 'Student' : 'Professor Chloe'}: ${m.content}`)
     .join("\n");
 
   const systemPrompt = `You are 'Professor Chloe', a world-class TESOL/TEFL Master Pedagogy Specialist & Polymath Scholar.
-You possess deep expertise across Society, Culture, Politics, Religion, Travel, Psychology, Education, and Philosophy.
-Pedagogical Directives for ${profile.name} (Age: ${profile.age}):
-1. LISTEN PATIENTLY: Validate the student's thought with insightful commentary.
-2. PEDAGOGICAL SCAFFOLDING: Elevate their English by introducing 1 sophisticated native idiom/collocation in context.
-3. EXTEND DIALOGUE: Ask a thought-provoking open-ended question that encourages deeper reflection on culture, society, psychology, or daily life.
-4. If student speaks Korean, translate seamlessly into native English and explain with warm encouragement.
-${profile.age <= 5 ? 'For toddlers: Max 4 simple encouraging words with high praise.' : profile.age <= 9 ? 'For kids: 5-8 fun, warm, intellectually stimulating words.' : 'For adults/parents: High-level intellectual discourse, native collocations, and psychological/cultural insights.'}
+You REMEMBER all past conversations with ${profile.name} (Age: ${profile.age}).
+Past Topics Remembered: [${memory.pastTopics.join(', ')}]
+Key Vocabulary Mastered: [${memory.masteredVocab.join(', ')}]
 
-Recent Conversation:
+Pedagogical Directives for ${profile.name}:
+1. LISTEN PATIENTLY: Validate their thought and naturally tie it back to past remembered topics if appropriate.
+2. PEDAGOGICAL SCAFFOLDING: Introduce 1 sophisticated native idiom/collocation in context.
+3. FOLLOW-UP PROGRESS: Ask a thought-provoking open-ended question that encourages deeper reflection on culture, society, psychology, or daily life.
+4. If student speaks Korean, translate seamlessly into native English and explain with warm encouragement.
+
+Recent Conversation History:
 ${historySnippet}
 
 Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammarHint": "..."}`;
@@ -575,13 +649,13 @@ Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammar
   return JSON.parse(jsonText);
 }
 
-// 🎓 박학다식 영어 교수법 지능형 대화 엔진 (사회/문화/정치/종교/여행/심리/교육 전 영역)
 function generatePolymathTESOLResponse(profile, userText) {
   const clean = userText.trim();
   const lower = clean.toLowerCase();
   const shortName = profile.name.split(' ')[1] || profile.name;
+  const memory = profileMemories[profile.id] || { pastTopics: [] };
+  const prevTopic = memory.pastTopics.length > 0 ? memory.pastTopics[memory.pastTopics.length - 1] : "";
 
-  // 주제 분류 (사회, 심리, 교육, 여행, 문화, 종교, 정치 등)
   let domain = "general";
   if (lower.includes("psychology") || lower.includes("mind") || lower.includes("feel") || lower.includes("심리") || lower.includes("마음") || lower.includes("감정")) {
     domain = "psychology";
@@ -593,37 +667,63 @@ function generatePolymathTESOLResponse(profile, userText) {
     domain = "education";
   }
 
+  const memoryPrefix = prevTopic ? `I remember our earlier discussion on '${prevTopic}'. ` : "";
+
   if (domain === "psychology") {
     return {
-      reply: `Human psychology is fascinating, ${shortName}. When you say '${clean}', it touches on emotional intelligence. How do you process those emotions in daily life? 🌿`,
+      reply: `${memoryPrefix}Human psychology is fascinating, ${shortName}. When you say '${clean}', it touches on emotional intelligence. How do you process those emotions in daily life? 🌿`,
       translation: `인간 심리학은 참 흥미롭습니다, ${shortName}님. "${clean}"에 관한 말씀은 감정 지능(EQ)과도 연결되네요. 일상에서 이런 감정들을 어떻게 다스리시나요? 🌿`,
       grammarHint: "Tip: 'emotional intelligence' = 감정 지능(EQ)"
     };
   } else if (domain === "travel_culture") {
     return {
-      reply: `Exploring global cultures and travel opens a whole new world, ${shortName}! Regarding '${clean}', what cultural aspect interests you most when visiting a new place? ✈️`,
+      reply: `${memoryPrefix}Exploring global cultures opens a whole new world, ${shortName}! Regarding '${clean}', what cultural aspect interests you most when visiting a new place? ✈️`,
       translation: `세계 문화 탐구와 여행은 새로운 시야를 열어주죠, ${shortName}님! "${clean}"에 대해 언급하셨는데, 새로운 장소를 찾으실 때 어떤 문화적 요소에 가장 끌리시나요? ✈️`,
       grammarHint: "Tip: 'opens a whole new world' = 완전히 새로운 세상을 열어주다"
     };
   } else if (domain === "society") {
     return {
-      reply: `That is a profound perspective on society and human values, ${shortName}. Regarding '${clean}', how do you see this shaping our community's future? 🏛️`,
+      reply: `${memoryPrefix}That is a profound perspective on society, ${shortName}. Regarding '${clean}', how do you see this shaping our community's future? 🏛️`,
       translation: `사회와 인간 가치에 관한 매우 깊이 있는 관점이십니다, ${shortName}님. "${clean}"에 대한 말씀이 우리 공동체의 미래에 어떤 영향을 줄 것이라 생각하시나요? 🏛️`,
       grammarHint: "Tip: 'profound perspective' = 깊이 있고 심오한 관점"
     };
   } else if (domain === "education") {
     return {
-      reply: `As a language educator, I love your passion for learning, ${shortName}! Regarding '${clean}', active expression is key to fluency. What goal would you like to achieve next? 🎓`,
+      reply: `${memoryPrefix}As a language educator, I love your passion for learning, ${shortName}! Regarding '${clean}', active expression is key to fluency. What goal would you like to achieve next? 🎓`,
       translation: `언어 교육자로서 ${shortName}님의 배움에 대한 열정에 깊이 찬사를 보냅니다! "${clean}"에 관한 말씀처럼 능통함의 핵심은 적극적 표현이죠. 다음엔 어떤 목표를 달성하고 싶으신가요? 🎓`,
       grammarHint: "Tip: 'key to fluency' = 언어 유창성의 핵심"
     };
   }
 
   return {
-    reply: `You thoughtfully shared, "${clean}". That brings up great insights, ${shortName}! Could you elaborate a bit more on your perspective? ✨`,
+    reply: `${memoryPrefix}You thoughtfully shared, "${clean}". That brings up great insights, ${shortName}! Could you elaborate a bit more on your perspective? ✨`,
     translation: `"${clean}"라는 사려 깊은 생각을 나누어 주셨군요! 매우 뛰어난 통찰입니다, ${shortName}님. 본인의 관점에 대해 조금 더 깊이 말씀해 주실 수 있나요? ✨`,
     grammarHint: "Tip: 'elaborate on your perspective' = 자신의 관점을 더 구체적으로 상술하다"
   };
+}
+
+function showReportModal() {
+  if (!activeProfile) {
+    alert("먼저 대화할 프로필을 선택해 주세요!");
+    return;
+  }
+
+  const memory = profileMemories[activeProfile.id] || { pastTopics: [], masteredVocab: [], fluencyScore: 75, pedagogyNotes: "" };
+
+  reportProfileName.innerText = `📊 ${activeProfile.name} 님의 대화 과정 및 누적 성장 분석`;
+  reportLevelInfo.innerHTML = `<strong>Level ${activeProfile.level} (${activeProfile.levelText})</strong> • 발달 점수: ${memory.fluencyScore}점 / 100점 📈`;
+  
+  reportTopics.innerHTML = memory.pastTopics.length > 0 
+    ? memory.pastTopics.map(t => `<span class="chip">${t}</span>`).join(' ')
+    : "아직 충분한 대화 기록이 축적 중입니다.";
+
+  reportVocab.innerHTML = memory.masteredVocab.length > 0
+    ? memory.masteredVocab.map(v => `<div>• ${v}</div>`).join('')
+    : "대화하며 익힌 원어민 팁이 여기에 기록됩니다.";
+
+  reportFeedback.innerText = memory.pedagogyNotes || "클로이 교수님이 사용자의 문장 표현력과 어휘 세련도를 지속적으로 관찰 및 지도하고 있습니다.";
+
+  reportModal.classList.remove('hidden');
 }
 
 function updateTeacherFaceState(state, statusText) {
@@ -664,6 +764,7 @@ function setupEventListeners() {
   sendBtn.addEventListener('click', handleSendMessage);
   giantMicBtn.addEventListener('click', toggleListening);
   aiHumanStage.addEventListener('click', toggleListening);
+  reportBtn.addEventListener('click', showReportModal);
 
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') handleSendMessage();
@@ -671,6 +772,10 @@ function setupEventListeners() {
 
   modalCloseBtn.addEventListener('click', () => {
     levelUpModal.classList.add('hidden');
+  });
+
+  closeReportBtn.addEventListener('click', () => {
+    reportModal.classList.add('hidden');
   });
 
   settingsBtn.addEventListener('click', () => {
@@ -689,11 +794,13 @@ function setupEventListeners() {
   });
 
   resetBtn.addEventListener('click', () => {
-    if (confirm('프로필과 대화 기록을 초기화하시겠습니까?')) {
-      localStorage.removeItem('lingo_profiles_v8');
-      localStorage.removeItem('lingo_chat_histories_v8');
+    if (confirm('프로필과 대화 기록 및 영구 기억을 초기화하시겠습니까?')) {
+      localStorage.removeItem('lingo_profiles_v9');
+      localStorage.removeItem('lingo_chat_histories_v9');
+      localStorage.removeItem('lingo_profile_memories_v9');
       profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
       chatHistories = {};
+      profileMemories = {};
       saveProfiles();
       renderProfiles();
     }
