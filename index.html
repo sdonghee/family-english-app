@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Max AI Style - Lingo AI Video PT</title>
+  <title>Max AI Style - Lingo AI Video PT Pro</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
 </head>
@@ -29,8 +29,8 @@
       <section id="profile-section" class="screen active">
         <div class="banner-card">
           <div class="banner-text">
-            <h2>AI 화상영어 1:1 PT</h2>
-            <p>실제 원어민 튜터 Chloe와의 생생한 1:1 리얼 타임 비디오 통화 대화!</p>
+            <h2>AI 화상영어 1:1 PT Pro</h2>
+            <p>실제 말하는 원어민 튜터 Chloe와의 1:1 라이브 모션 비디오 대화!</p>
           </div>
           <div class="banner-icon">📹</div>
         </div>
@@ -56,6 +56,16 @@
       <section id="chat-section" class="screen">
         <div class="chat-top-bar">
           <button id="back-to-profiles-btn" class="icon-btn">◀ 프로필 전환</button>
+          
+          <!-- 🎭 선생님 페르소나 선택 드롭다운 -->
+          <div class="persona-selector-wrapper">
+            <select id="persona-select" class="persona-select">
+              <option value="friend">☕ 친근한 친구 모드</option>
+              <option value="professor" selected>🎓 TESOL 교수님 모드</option>
+              <option value="guide">✈️ 여행&비즈니스 가이드</option>
+            </select>
+          </div>
+
           <div class="active-profile-header" id="active-profile-header">
             <!-- JS로 활성 프로필 표시 -->
           </div>
@@ -79,26 +89,46 @@
           </div>
         </div>
 
+        <!-- 📅 6인 가족 프로필별 1:1 맞춤 데일리 미션 카드 -->
+        <div class="daily-mission-card" id="daily-mission-card">
+          <div class="mission-header">
+            <span>📅 오늘의 맞춤 미션</span>
+            <span class="mission-reward">+50 XP 보너스</span>
+          </div>
+          <div class="mission-list" id="mission-list">
+            <!-- JS로 동적 생성 -->
+          </div>
+        </div>
+
         <!-- Max AI 화상 통화 튜터 비디오 스테이지 -->
         <div class="max-video-stage" id="ai-human-stage">
-          <div class="max-ai-badge">max ai <span>LIVE</span></div>
+          <div class="max-ai-badge">max ai <span>LIVE CALL</span></div>
 
-          <div class="video-avatar-wrapper">
+          <div class="video-avatar-wrapper" id="video-avatar-wrapper">
             <img src="assets/chloe_teacher_avatar.jpg" alt="Chloe AI Teacher" class="max-teacher-img" id="max-teacher-img">
+            <canvas id="lip-sync-canvas" class="lip-sync-canvas"></canvas>
+
             <div class="video-play-overlay-btn" id="video-play-overlay-btn">
               <div class="play-triangle"></div>
             </div>
             <div class="video-live-pulse" id="video-live-pulse"></div>
           </div>
 
-          <!-- 자막 & 수치 스피치 오버레이 (Max AI 핵심 스타일) -->
+          <!-- 🎯 실시간 발음 & 유창성 분석 스코어 오버레이 -->
+          <div class="speech-score-bar" id="speech-score-bar" style="display: none;">
+            <div class="score-pill">🎯 발음 <strong id="score-accuracy">94%</strong></div>
+            <div class="score-pill">⚡ 유창성 <strong id="score-wpm">88 WPM</strong></div>
+            <div class="score-pill">💎 표현력 <strong id="score-grade">B+</strong></div>
+          </div>
+
+          <!-- 자막 & 스피치 오버레이 -->
           <div class="speech-overlay-box" id="speech-overlay-box">
             <div class="speech-en-text" id="speech-en-text">"How are you doing today?"</div>
             <div class="speech-kr-sub" id="speech-kr-sub">오늘 하루 어떠셨나요?</div>
           </div>
 
           <div class="lingo-status-tag" id="lingo-status-tag">
-            👩‍🏫 마이크를 누르거나 화면을 터치해 실제 화상 통화처럼 대화하세요!
+            👩‍🏫 마이크를 누르면 Chloe 선생님이 고개를 끄덕이며 입을 움직여 대화합니다!
           </div>
         </div>
 

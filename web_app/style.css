@@ -301,12 +301,24 @@ body {
 
 .chat-top-bar {
   background: #1e293b;
-  padding: 8px 16px;
+  padding: 8px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid #334155;
   color: white;
+}
+
+.persona-select {
+  background: #334155;
+  color: #f1f5f9;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid #475569;
+  border-radius: 12px;
+  padding: 4px 8px;
+  outline: none;
+  cursor: pointer;
 }
 
 .active-profile-header {
@@ -317,8 +329,8 @@ body {
 
 .xp-card {
   background: #1e293b;
-  margin: 8px 14px 4px 14px;
-  padding: 8px 12px;
+  margin: 6px 14px 2px 14px;
+  padding: 6px 12px;
   border-radius: 14px;
   color: white;
   border: 1px solid #334155;
@@ -376,11 +388,81 @@ body {
   margin-top: 3px;
 }
 
-/* 🎥 Max AI 라이브 말하는 화상 아바타 스테이지 (Talking Head Animation) */
+/* 📅 1:1 맞춤 데일리 미션 카드 */
+.daily-mission-card {
+  background: #1e293b;
+  margin: 4px 14px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  border: 1px solid #334155;
+  color: white;
+}
+
+.mission-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #c084fc;
+  margin-bottom: 4px;
+}
+
+.mission-reward {
+  background: #451a03;
+  color: #fde047;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+}
+
+.mission-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mission-item {
+  font-size: 11px;
+  color: #cbd5e1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mission-item.completed {
+  text-decoration: line-through;
+  color: #4ade80;
+}
+
+/* 🎯 실시간 발음 스코어 오버레이 */
+.speech-score-bar {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  gap: 4px;
+}
+
+.score-pill {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #f1f5f9;
+  font-size: 10px;
+  padding: 3px 6px;
+  border-radius: 10px;
+}
+
+.score-pill strong {
+  color: #38bdf8;
+}
+
 .max-video-stage {
   position: relative;
-  margin: 6px 14px 4px 14px;
-  height: 235px;
+  margin: 4px 14px 4px 14px;
+  height: 220px;
   border-radius: 20px;
   overflow: hidden;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
@@ -436,7 +518,6 @@ body {
   transition: transform 0.2s ease;
 }
 
-/* 🗣️ 선생님이 말할 때 실제 고개를 끄덕이며 생생하게 움직이는 화상 애니메이션! */
 .max-video-stage.speaking .max-teacher-img {
   animation: liveTalkingHead 0.5s infinite alternate cubic-bezier(0.45, 0.05, 0.55, 0.95);
 }
@@ -447,7 +528,6 @@ body {
   100% { transform: scale(1.008) translateY(1px) rotate(-0.3deg); }
 }
 
-/* 👄 실시간 립싱크 캔버스 */
 .lip-sync-canvas {
   position: absolute;
   top: 0;
@@ -634,6 +714,23 @@ body {
 .upgrade-step.advanced {
   color: #a855f7;
   font-weight: 700;
+}
+
+.shadowing-btn-group {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.shadow-btn {
+  background: #334155;
+  border: 1px solid #475569;
+  color: #e2e8f0;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: 8px;
+  cursor: pointer;
 }
 
 .translation-box {
