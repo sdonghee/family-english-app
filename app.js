@@ -206,7 +206,7 @@ function loadNaturalVoices() {
 }
 
 function loadStoredData() {
-  const savedProfiles = localStorage.getItem('lingo_profiles_v10');
+  const savedProfiles = localStorage.getItem('lingo_profiles_v11');
   if (savedProfiles) {
     profiles = JSON.parse(savedProfiles);
   } else {
@@ -214,13 +214,13 @@ function loadStoredData() {
     saveProfiles();
   }
 
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v10');
+  const savedHistories = localStorage.getItem('lingo_chat_histories_v11');
   if (savedHistories) chatHistories = JSON.parse(savedHistories);
 
-  const savedMemories = localStorage.getItem('lingo_profile_memories_v10');
+  const savedMemories = localStorage.getItem('lingo_profile_memories_v11');
   if (savedMemories) profileMemories = JSON.parse(savedMemories);
 
-  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v10');
+  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v11');
   if (savedFlashcards) userFlashcards = JSON.parse(savedFlashcards);
 
   userGeminiApiKey = localStorage.getItem('lingo_gemini_api_key') || '';
@@ -228,19 +228,19 @@ function loadStoredData() {
 }
 
 function saveProfiles() {
-  localStorage.setItem('lingo_profiles_v10', JSON.stringify(profiles));
+  localStorage.setItem('lingo_profiles_v11', JSON.stringify(profiles));
 }
 
 function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v10', JSON.stringify(chatHistories));
+  localStorage.setItem('lingo_chat_histories_v11', JSON.stringify(chatHistories));
 }
 
 function saveMemories() {
-  localStorage.setItem('lingo_profile_memories_v10', JSON.stringify(profileMemories));
+  localStorage.setItem('lingo_profile_memories_v11', JSON.stringify(profileMemories));
 }
 
 function saveFlashcards() {
-  localStorage.setItem('lingo_user_flashcards_v10', JSON.stringify(userFlashcards));
+  localStorage.setItem('lingo_user_flashcards_v11', JSON.stringify(userFlashcards));
 }
 
 function renderLeaderboard() {
@@ -316,11 +316,24 @@ function selectProfile(id) {
 
 function getWelcomeMessage(profile) {
   const shortName = profile.name.split(' ')[1] || profile.name;
-  return `Hello ${profile.name}! I'm Professor Chloe. 3-Stage Sentence Upgrade & Live Roleplay features are now active. What topic or roleplay shall we begin with today? ✨`;
+  if (profile.age <= 5) {
+    return `Hi ${shortName}! It's so nice to talk with you. What are you thinking about right now? ✨`;
+  } else if (profile.age <= 9) {
+    return `Hey ${shortName}! I was looking forward to catching up with you today. What exciting things happened? 🎮`;
+  } else {
+    return `Hello ${profile.name}! It's wonderful to connect with you. I'm all ears—tell me what's on your mind today, whether it's work, travel, or just life! ✨`;
+  }
 }
 
 function getWelcomeTranslation(profile) {
-  return `안녕하세요 ${profile.name}님! 클로이 교수입니다. 3단계 문장 엘리베이터 교정 및 실전 롤플레이 모드가 가동되었습니다. 어떤 자유 대화나 역할극을 시작해 볼까요? ✨`;
+  const shortName = profile.name.split(' ')[1] || profile.name;
+  if (profile.age <= 5) {
+    return `안녕 ${shortName}! 오늘 만나서 정말 반가워. 지금 어떤 생각을 하고 있니? ✨`;
+  } else if (profile.age <= 9) {
+    return `안녕 ${shortName}! 오늘 너랑 수다 떨 생각에 기대하고 있었어. 무슨 재미있는 일이 있었니? 🎮`;
+  } else {
+    return `안녕하세요 ${profile.name}님! 만나서 반갑습니다. 오늘 어떤 이야기를 들려주실지 정말 기대돼요. 편하게 말씀해 주세요! ✨`;
+  }
 }
 
 function updateProfileUIHeader() {
@@ -407,20 +420,32 @@ function toggleTranslation(id) {
   }
 }
 
+function cleanTextForSpeech(text) {
+  if (!text) return "";
+  let clean = text.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '');
+  clean = clean.replace(/\[.*?\]/g, '');
+  clean = clean.replace(/[*_#`~]/g, '');
+  return clean.trim();
+}
+
 function speakText(text) {
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
+    
+    const cleanSpeech = cleanTextForSpeech(text);
+    if (!cleanSpeech) return;
+
+    const utterance = new SpeechSynthesisUtterance(cleanSpeech);
     
     if (naturalVoices.length > 0) {
       utterance.voice = naturalVoices[0];
     }
     utterance.lang = 'en-US';
-    utterance.pitch = 1.02;
-    utterance.rate = activeProfile && activeProfile.age <= 5 ? 0.85 : 0.92;
+    utterance.pitch = 1.06;
+    utterance.rate = activeProfile && activeProfile.age <= 5 ? 0.86 : 0.93;
 
     utterance.onstart = () => {
-      updateTeacherFaceState('speaking', '👩‍🏫 클로이 교수님이 원어민 발음과 뉘앙스로 대화 중...');
+      updateTeacherFaceState('speaking', '👩‍🏫 감정과 뉘앙스를 담아 대화하는 중...');
     };
 
     utterance.onend = () => {
@@ -566,7 +591,7 @@ async function handleSendMessage() {
   saveHistories();
   renderMessages();
 
-  updateTeacherFaceState('thinking', '🤔 3단계 문장 엘리베이터 및 발음 피드백 생성 중...');
+  updateTeacherFaceState('thinking', '🤔 풍부한 감정과 기품 있는 어조로 답변 생각 중...');
 
   const xpEarned = text.split(' ').length >= 4 ? 30 : 20;
   const didLevelUp = addXpToActiveProfile(xpEarned);
@@ -644,16 +669,26 @@ function updateProfileMemory(id, userText, aiReply, grammarHint) {
 
 async function fetchRealGeminiResponse(profile, userText) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${userGeminiApiKey}`;
-  const memory = profileMemories[profile.id] || { pastTopics: [], masteredVocab: [] };
+  
+  const historySnippet = (chatHistories[profile.id] || [])
+    .slice(-6)
+    .map(m => `${m.sender === 'user' ? 'Student' : 'Chloe'}: ${m.content}`)
+    .join("\n");
 
-  const systemPrompt = `You are 'Professor Chloe', a world-class TESOL Master Pedagogy Specialist & Polymath Scholar.
-Perform 3-Stage Sentence Upgrade on user's sentence "${userText}":
-1. nativeUpgrade: Natural everyday native sentence.
-2. advancedUpgrade: Sophisticated C1/C2 academic/business phrasing.
-3. reply: Engaging, charming response answering their thought.
-4. translation: Korean translation of reply.
-5. grammarHint: Key idiom or collocation learned.
-6. phonemeTip: Pronunciation and word stress advice.
+  const systemPrompt = `You are 'Chloe', an incredibly charismatic, warm, highly expressive human bilingual English conversation partner for ${profile.name} (Age: ${profile.age}).
+Rules:
+1. Speak with genuine human emotion, warmth, active listening, and natural conversational cadence.
+2. NEVER sound like a rigid textbook or robotic AI. Never say robot phrases like "3-stage upgrade active". Speak like an authentic, highly educated friend!
+3. Perform 3-Stage Sentence Upgrade on "${userText}":
+   - nativeUpgrade: Everyday natural native phrasing.
+   - advancedUpgrade: Sophisticated C1/C2 vocabulary.
+4. reply: Your natural, emotionally engaging spoken response to what they just said.
+5. translation: Korean translation of reply.
+6. grammarHint: Key native idiom.
+7. phonemeTip: Natural stress & pronunciation advice.
+
+Recent History:
+${historySnippet}
 
 Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammarHint": "...", "phonemeTip": "...", "nativeUpgrade": "...", "advancedUpgrade": "..."}`;
 
@@ -683,12 +718,12 @@ function generateProEngineResponse(profile, userText) {
   const shortName = profile.name.split(' ')[1] || profile.name;
 
   return {
-    reply: `That is a wonderful perspective, ${shortName}! You said: "${clean}". I loved how clearly you expressed that! ✨`,
-    translation: `정말 멋진 관점입니다, ${shortName}님! "${clean}"라고 말씀해 주셨는데, 생각을 또렷하게 표현해 주셔서 정말 좋습니다! ✨`,
-    nativeUpgrade: `I was thinking about ${clean} recently.`,
-    advancedUpgrade: `I have been contemplating the implications of ${clean} in depth.`,
-    grammarHint: "Tip: 'contemplate in depth' = 심도 있게 숙고하다",
-    phonemeTip: "Tip: 'contemplate'는 첫 음절 [콘-]에 힘주어 발음하세요!"
+    reply: `That is such a thoughtful thing to share, ${shortName}. When you talk about "${clean}", it really makes me think deeper about how we express our ideas. How did that feel for you?`,
+    translation: `그렇게 말씀해 주시다니 정말 사려 깊네요, ${shortName}님. "${clean}"에 대한 이야기를 들으니 우리의 생각을 표현하는 방식에 대해 더 깊이 생각해보게 되네요. 이야기하시면서 어떠셨나요?`,
+    nativeUpgrade: `I've been thinking a lot about ${clean} lately.`,
+    advancedUpgrade: `I have been reflecting deeply on the nuances of ${clean}.`,
+    grammarHint: "Tip: 'reflect deeply on' = ~에 대해 깊이 반추하고 생각하다",
+    phonemeTip: "Tip: 'reflect'는 두 번째 음절 [-플렉트]에 강세를 주세요!"
   };
 }
 
@@ -712,8 +747,8 @@ function startRoleplayScenario(scenario) {
 
   const startMsg = {
     sender: 'ai',
-    content: `[🎭 롤플레이 시작: ${scenario.title}] Hello! I am your partner for this scenario. Let's begin! 🚀`,
-    translation: `[🎭 롤플레이 시작: ${scenario.title}] 안녕하세요! 이번 역할극의 상대방입니다. 자, 시작해 볼까요? 🚀`,
+    content: `Hi there! I'm ready for our ${scenario.title} scenario. How can I help you today? ✨`,
+    translation: `안녕하세요! ${scenario.title} 역할극 준비가 되었습니다. 무엇을 도와드릴까요? ✨`,
     timestamp: new Date().toISOString()
   };
 
@@ -850,10 +885,10 @@ function setupEventListeners() {
 
   resetBtn.addEventListener('click', () => {
     if (confirm('프로필과 대화 기록, 단어장을 모두 초기화하시겠습니까?')) {
-      localStorage.removeItem('lingo_profiles_v10');
-      localStorage.removeItem('lingo_chat_histories_v10');
-      localStorage.removeItem('lingo_profile_memories_v10');
-      localStorage.removeItem('lingo_user_flashcards_v10');
+      localStorage.removeItem('lingo_profiles_v11');
+      localStorage.removeItem('lingo_chat_histories_v11');
+      localStorage.removeItem('lingo_profile_memories_v11');
+      localStorage.removeItem('lingo_user_flashcards_v11');
       profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
       chatHistories = {};
       profileMemories = {};
