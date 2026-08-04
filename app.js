@@ -206,6 +206,43 @@ function renderProfiles() {
   });
 }
 
+function getProfileNameInfo(profile) {
+  if (!profile || !profile.name) {
+    return { krName: '친구', enName: 'Friend' };
+  }
+
+  const KnownMappings = {
+    'p_dad': { krName: '아빠', enName: 'Dad' },
+    'p_mom': { krName: '엄마', enName: 'Mom' },
+    'p_child1': { krName: '하율', enName: 'Hayul' },
+    'p_child2': { krName: '예율', enName: 'Yeyul' },
+    'p_child3': { krName: '성율', enName: 'Seongyul' },
+    'p_youngest': { krName: '지율', enName: 'Jiyul' }
+  };
+
+  if (profile.id && KnownMappings[profile.id]) {
+    return KnownMappings[profile.id];
+  }
+
+  const rawName = profile.name.trim();
+  let clean = rawName.replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '').trim();
+  clean = clean.replace(/^(첫째|둘째|셋째|넷째|막내)\s+/g, '').trim();
+
+  if (clean === '아빠') return { krName: '아빠', enName: 'Dad' };
+  if (clean === '엄마') return { krName: '엄마', enName: 'Mom' };
+  if (clean === '하율') return { krName: '하율', enName: 'Hayul' };
+  if (clean === '예율') return { krName: '예율', enName: 'Yeyul' };
+  if (clean === '성율') return { krName: '성율', enName: 'Seongyul' };
+  if (clean === '지율') return { krName: '지율', enName: 'Jiyul' };
+
+  const isEnglish = /^[A-Za-z0-9\s]+$/.test(clean);
+  if (isEnglish) {
+    return { krName: clean, enName: clean };
+  }
+
+  return { krName: clean, enName: clean };
+}
+
 function selectProfile(id) {
   activeProfile = profiles.find(p => p.id === id);
   if (!activeProfile) return;
@@ -213,16 +250,26 @@ function selectProfile(id) {
   conversationTurnCount = 0;
   recentRepliesBuffer = [];
 
-  if (!chatHistories[id]) {
+  const welcomeContent = getWelcomeMessage(activeProfile);
+  const welcomeTranslation = getWelcomeTranslation(activeProfile);
+
+  if (!chatHistories[id] || chatHistories[id].length === 0) {
     chatHistories[id] = [
       {
         sender: 'ai',
-        content: getWelcomeMessage(activeProfile),
-        translation: getWelcomeTranslation(activeProfile),
+        content: welcomeContent,
+        translation: welcomeTranslation,
         timestamp: new Date().toISOString()
       }
     ];
     saveHistories();
+  } else {
+    // 저장된 기존 웰컴 메시지가 있는 경우 표현 보정 및 갱신
+    if (chatHistories[id][0] && chatHistories[id][0].sender === 'ai') {
+      chatHistories[id][0].content = welcomeContent;
+      chatHistories[id][0].translation = welcomeTranslation;
+      saveHistories();
+    }
   }
 
   if (activeProfileHeader) activeProfileHeader.innerHTML = `${activeProfile.avatarIcon} <span>${activeProfile.name}</span>`;
@@ -238,24 +285,24 @@ function selectProfile(id) {
 }
 
 function getWelcomeMessage(profile) {
-  const shortName = profile.name.split(' ')[1] || profile.name;
+  const { enName } = getProfileNameInfo(profile);
   if (profile.age <= 5) {
-    return `Hi ${shortName}! What are you playing with today? ✨`;
+    return `Hi ${enName}! What are you playing with today? ✨`;
   } else if (profile.age <= 9) {
-    return `Hey ${shortName}! What was the best part of your day today? 🎮`;
+    return `Hey ${enName}! What was the best part of your day today? 🎮`;
   } else {
-    return `Hello ${profile.name}! I'm Chloe. How is your day going today? ✨`;
+    return `Hello ${enName}! I'm Chloe. How is your day going today? ✨`;
   }
 }
 
 function getWelcomeTranslation(profile) {
-  const shortName = profile.name.split(' ')[1] || profile.name;
+  const { krName } = getProfileNameInfo(profile);
   if (profile.age <= 5) {
-    return `안녕 ${shortName}! 오늘 뭐 하고 놀고 있니? ✨`;
+    return `안녕 ${krName}! 오늘 뭐 하고 놀고 있니? ✨`;
   } else if (profile.age <= 9) {
-    return `안녕 ${shortName}! 오늘 가장 재미있었던 일은 뭐야? 🎮`;
+    return `안녕 ${krName}! 오늘 가장 재미있었던 일은 뭐야? 🎮`;
   } else {
-    return `안녕하세요 ${profile.name}님! 저는 클로이예요. 오늘 하루 어떠셨나요? ✨`;
+    return `안녕하세요 ${krName}님! 저는 클로이예요. 오늘 하루 어떠셨나요? ✨`;
   }
 }
 
@@ -340,42 +387,33 @@ function splitTextIntoBilingualChunks(text) {
   let clean = text.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{20E3}]/gu, '');
   clean = clean.replace(/\[.*?\]/g, '').replace(/[*_#`~]/g, '').trim();
 
-  // 2. 구두점(, . ! ?)을 기준으로 자연스러운 숨쉬기 구간으로 분리
+  // 2. 구두점(, . ! ?)을 기준으로 자연스러운 마디 분리
   const rawSegments = clean.split(/(?<=[,.!?])\s+/);
   const chunks = [];
 
   rawSegments.forEach(segment => {
-    if (!segment.trim()) return;
-    const hasComma = segment.endsWith(',');
-    const hasQuestion = segment.endsWith('?');
-    const hasExclamation = segment.endsWith('!');
+    const trimmed = segment.trim();
+    if (!trimmed) return;
 
-    // 단어별 언어 판별
-    const tokens = segment.split(/(\s+)/);
-    let currentChunk = { text: '', lang: null, pause: 280 };
+    const hasComma = trimmed.endsWith(',');
+    const hasQuestion = trimmed.endsWith('?');
+    const hasExclamation = trimmed.endsWith('!');
 
-    tokens.forEach(token => {
-      if (!token) return;
-      const isKorean = /[\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF]/.test(token);
-      const lang = isKorean ? 'ko-KR' : 'en-US';
+    // 세그먼트 전체의 주언어 판별 (영문 알파벳 수 vs 한글 글자 수)
+    const krCount = (trimmed.match(/[\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF]/g) || []).length;
+    const enCount = (trimmed.match(/[a-zA-Z]/g) || []).length;
 
-      if (currentChunk.lang === lang) {
-        currentChunk.text += token;
-      } else {
-        if (currentChunk.text.trim().length > 0) {
-          chunks.push(currentChunk);
-        }
-        currentChunk = { text: token, lang: lang, pause: 200 };
-      }
+    // 단어별 잦은 언어 음성 교체로 인한 끊김 방지: 세그먼트 단위로 주언어 지정
+    const lang = (enCount >= krCount) ? 'en-US' : 'ko-KR';
+    const pauseTime = hasComma ? 120 : (hasQuestion || hasExclamation ? 200 : 160);
+
+    chunks.push({
+      text: trimmed,
+      lang: lang,
+      pause: pauseTime,
+      isQuestion: hasQuestion,
+      isExclamation: hasExclamation
     });
-
-    if (currentChunk.text.trim().length > 0) {
-      // 쉼표는 300ms 일시정지, 마침표/물음표는 420ms 우아한 정지
-      currentChunk.pause = hasComma ? 320 : (hasQuestion || hasExclamation ? 420 : 350);
-      currentChunk.isQuestion = hasQuestion;
-      currentChunk.isExclamation = hasExclamation;
-      chunks.push(currentChunk);
-    }
   });
 
   return chunks;
@@ -392,6 +430,7 @@ function speakText(text) {
   if (!('speechSynthesis' in window)) return;
   
   window.speechSynthesis.cancel();
+  if (!naturalEnVoice) loadNaturalVoices();
 
   const chunks = splitTextIntoBilingualChunks(text);
   if (chunks.length === 0) return;
@@ -561,6 +600,17 @@ function toggleListening() {
   }
 }
 
+function startListening() {
+  if (!recognition || isListening) return;
+  try {
+    if (chatInput) chatInput.value = '';
+    accumulatedTranscript = '';
+    recognition.start();
+  } catch (e) {
+    console.warn("Could not auto start listening:", e);
+  }
+}
+
 function stopListening() {
   isListening = false;
   if (speechPauseTimer) clearTimeout(speechPauseTimer);
@@ -696,14 +746,15 @@ function handleAiResponseReceived(aiResponse, userText) {
 }
 
 async function fetchRealGeminiResponse(profile, userText) {
+  const { krName, enName } = getProfileNameInfo(profile);
   // 대화 기록 생성
   const historySnippet = (chatHistories[profile.id] || [])
     .slice(-8)
-    .map(m => `${m.sender === 'user' ? profile.name : 'Chloe'}: ${m.content}`)
+    .map(m => `${m.sender === 'user' ? enName : 'Chloe'}: ${m.content}`)
     .join("\n");
 
   const requestBody = {
-    userName: profile.name,
+    userName: `${enName} (${krName})`,
     userAge: profile.age,
     userText: userText,
     history: historySnippet,
@@ -752,7 +803,7 @@ async function fetchRealGeminiResponse(profile, userText) {
 // 🧠 문맥을 100% 반영해 질문에 '진짜 대답'하는 초스마트 오프라인 추론 엔진
 function generateNaturalHumanResponse(profile, userText) {
   conversationTurnCount++;
-  const shortName = profile.name.split(' ')[1] || profile.name;
+  const { krName, enName } = getProfileNameInfo(profile);
   const lower = userText.toLowerCase().trim();
 
   let reply = "";
@@ -761,40 +812,40 @@ function generateNaturalHumanResponse(profile, userText) {
   let adv = "";
 
   if (lower.includes("name") || lower.includes("who are you") || lower.includes("your name")) {
-    reply = `My name is Chloe! I'm your native English teacher. What's your name, ${shortName}?`;
-    trans = `제 이름은 클로이예요! 여러분의 원어민 영어 선생님이죠. ${shortName}님의 이름은 무엇인가요?`;
+    reply = `My name is Chloe! I'm your native English teacher. What's your name, ${enName}?`;
+    trans = `제 이름은 클로이예요! 여러분의 원어민 영어 선생님이죠. ${krName}님의 이름은 무엇인가요?`;
     native = `I'm Chloe, nice to meet you!`;
     adv = `My name is Chloe, I serve as your native English instructor.`;
   } else if (lower.includes("how are you") || lower.includes("how do you do") || lower.includes("what's up")) {
-    reply = `I'm doing wonderful today, ${shortName}! Thanks for asking. How has your day been going?`;
-    trans = `저는 오늘 정말 잘 지내고 있어요, ${shortName}님! 물어봐 주셔서 고마워요. 오늘 하루는 어떻게 보내고 계신가요?`;
+    reply = `I'm doing wonderful today, ${enName}! Thanks for asking. How has your day been going?`;
+    trans = `저는 오늘 정말 잘 지내고 있어요, ${krName}님! 물어봐 주셔서 고마워요. 오늘 하루는 어떻게 보내고 계신가요?`;
     native = `I'm doing great, thanks! How about you?`;
     adv = `I am functioning exceptionally well today. How is your day progressing?`;
   } else if (lower.includes("weather") || lower.includes("rain") || lower.includes("sunny") || lower.includes("cold") || lower.includes("hot")) {
-    reply = `The weather sounds really interesting today! Do you prefer sunny days or rainy days, ${shortName}?`;
-    trans = `오늘 날씨 이야기는 정말 재미있네요! ${shortName}님은 해가 쨍쨍한 날과 비 오는 날 중 어떤 날을 더 좋아하시나요?`;
+    reply = `The weather sounds really interesting today! Do you prefer sunny days or rainy days, ${enName}?`;
+    trans = `오늘 날씨 이야기는 정말 재미있네요! ${krName}님은 해가 쨍쨍한 날과 비 오는 날 중 어떤 날을 더 좋아하시나요?`;
     native = `Do you like sunny or rainy days better?`;
     adv = `Do you incline towards sunny or precipitative weather conditions?`;
   } else if (lower.includes("food") || lower.includes("eat") || lower.includes("lunch") || lower.includes("dinner") || lower.includes("pizza") || lower.includes("burger") || lower.includes("hungry")) {
-    reply = `Mmm, talking about food makes me hungry, ${shortName}! What's your absolute favorite food to eat?`;
-    trans = `음, 음식 이야기를 하니까 배가 고파지네요, ${shortName}님! 가장 좋아하는 음식은 무엇인가요?`;
+    reply = `Mmm, talking about food makes me hungry, ${enName}! What's your absolute favorite food to eat?`;
+    trans = `음, 음식 이야기를 하니까 배가 고파지네요, ${krName}님! 가장 좋아하는 음식은 무엇인가요?`;
     native = `What's your favorite food?`;
     adv = `Which culinary item do you hold in highest regard?`;
   } else if (lower.includes("game") || lower.includes("roblox") || lower.includes("play") || lower.includes("toy") || lower.includes("minecraft")) {
-    reply = `Playing games is so much fun! What game do you play the most these days, ${shortName}?`;
-    trans = `게임하는 건 정말 신나는 일이죠! ${shortName}님, 요즘 어떤 게임을 가장 많이 하시나요?`;
+    reply = `Playing games is so much fun! What game do you play the most these days, ${enName}?`;
+    trans = `게임하는 건 정말 신나는 일이죠! ${krName}님, 요즘 어떤 게임을 가장 많이 하시나요?`;
     native = `What game do you play most?`;
     adv = `Which interactive game do you engage with most frequently?`;
   } else if (lower.includes("tired") || lower.includes("sleep") || lower.includes("hard") || lower.includes("busy")) {
-    reply = `Oh, I hear you, ${shortName}. You worked so hard today! Please make sure to get some rest, okay?`;
-    trans = `아, 무슨 말씀이신지 이해해요, ${shortName}님. 오늘 정말 수고 많으셨어요! 꼭 맛있는 것도 드시고 쉬세요, 아셨죠?`;
+    reply = `Oh, I hear you, ${enName}. You worked so hard today! Please make sure to get some rest, okay?`;
+    trans = `아, 무슨 말씀이신지 이해해요, ${krName}님. 오늘 정말 수고 많으셨어요! 꼭 맛있는 것도 드시고 쉬세요, 아셨죠?`;
     native = `Make sure to get rest today!`;
     adv = `Ensure you prioritize adequate rest and recuperation.`;
   } else {
     // 키워드를 직접 반영하여 질문에 '진짜 대답'하는 스마트 문맥 응답
     const userWords = userText.split(' ').slice(0, 3).join(' ');
-    reply = `Ah, you mentioned "${userWords}"! That is really interesting, ${shortName}. Tell me a bit more about it!`;
-    trans = `아, "${userWords}"에 대해 말씀하셨군요! 정말 흥미롭네요, ${shortName}님. 그에 대해 조금만 더 말씀해 주시겠어요?`;
+    reply = `Ah, you mentioned "${userWords}"! That is really interesting, ${enName}. Tell me a bit more about it!`;
+    trans = `아, "${userWords}"에 대해 말씀하셨군요! 정말 흥미롭네요, ${krName}님. 그에 대해 조금만 더 말씀해 주시겠어요?`;
     native = `Tell me more about that!`;
     adv = `Could you elaborate further on that topic?`;
   }
