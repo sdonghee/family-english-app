@@ -78,7 +78,7 @@ RESPOND IN THIS EXACT JSON FORMAT:
 {"reply": "your natural spoken response", "translation": "자연스러운 한국어 번역", "grammarFixNote": "문법 교정 (한국어로 설명) or empty string", "nativeUpgrade": "what the student tried to say, said naturally", "advancedUpgrade": "C1/C2 level sophisticated version"}`;
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
 
     const bodyData = {
       system_instruction: { parts: [{ text: systemPrompt }] },
