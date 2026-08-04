@@ -309,7 +309,7 @@ function loadNaturalVoices() {
 }
 
 function loadStoredData() {
-  const savedProfiles = localStorage.getItem('lingo_profiles_v19');
+  const savedProfiles = localStorage.getItem('lingo_profiles_v20');
   if (savedProfiles) {
     profiles = JSON.parse(savedProfiles);
   } else {
@@ -317,13 +317,13 @@ function loadStoredData() {
     saveProfiles();
   }
 
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v19');
+  const savedHistories = localStorage.getItem('lingo_chat_histories_v20');
   if (savedHistories) chatHistories = JSON.parse(savedHistories);
 
-  const savedMemories = localStorage.getItem('lingo_profile_memories_v19');
+  const savedMemories = localStorage.getItem('lingo_profile_memories_v20');
   if (savedMemories) profileMemories = JSON.parse(savedMemories);
 
-  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v19');
+  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v20');
   if (savedFlashcards) userFlashcards = JSON.parse(savedFlashcards);
 
   userGeminiApiKey = localStorage.getItem('lingo_gemini_api_key') || '';
@@ -331,19 +331,19 @@ function loadStoredData() {
 }
 
 function saveProfiles() {
-  localStorage.setItem('lingo_profiles_v19', JSON.stringify(profiles));
+  localStorage.setItem('lingo_profiles_v20', JSON.stringify(profiles));
 }
 
 function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v19', JSON.stringify(chatHistories));
+  localStorage.setItem('lingo_chat_histories_v20', JSON.stringify(chatHistories));
 }
 
 function saveMemories() {
-  localStorage.setItem('lingo_profile_memories_v19', JSON.stringify(profileMemories));
+  localStorage.setItem('lingo_profile_memories_v20', JSON.stringify(profileMemories));
 }
 
 function saveFlashcards() {
-  localStorage.setItem('lingo_user_flashcards_v19', JSON.stringify(userFlashcards));
+  localStorage.setItem('lingo_user_flashcards_v20', JSON.stringify(userFlashcards));
 }
 
 function renderLeaderboard() {
@@ -800,7 +800,7 @@ async function handleSendMessage() {
   renderMessages();
 
   calculateSpeechAnalytics(text);
-  updateTeacherFaceState('thinking', '🤔 Chloe 선생님이 대화를 경청하며 답을 생각 중...');
+  updateTeacherFaceState('thinking', '🤔 Chloe 선생님이 대화를 깊이 이해하며 생각을 정리하는 중...');
 
   const xpEarned = text.split(' ').length >= 4 ? 30 : 20;
   const didLevelUp = addXpToActiveProfile(xpEarned);
@@ -811,14 +811,12 @@ async function handleSendMessage() {
     renderDailyMissions();
   }
 
-  if (userGeminiApiKey && userGeminiApiKey.trim().length > 10) {
-    try {
-      const resp = await fetchRealGeminiResponse(activeProfile, text);
-      handleAiResponseReceived(resp, didLevelUp, text);
-      return;
-    } catch (e) {
-      console.warn("Gemini API Call fallback to Semantic Intent NLP Engine", e);
-    }
+  try {
+    const resp = await fetchRealGeminiResponse(activeProfile, text);
+    handleAiResponseReceived(resp, didLevelUp, text);
+    return;
+  } catch (e) {
+    console.warn("Gemini API Call fallback to High-Intelligence Conversational Engine", e);
   }
 
   setTimeout(() => {
@@ -838,7 +836,7 @@ function handleAiResponseReceived(aiResponse, didLevelUp, userText) {
     phonemeTip: aiResponse.phonemeTip,
     nativeUpgrade: aiResponse.nativeUpgrade,
     advancedUpgrade: aiResponse.advancedUpgrade,
-    grammarFixNote: grammarFixNote || aiResponse.grammarFixNote,
+    grammarFixNote: aiResponse.grammarFixNote || grammarFixNote,
     timestamp: new Date().toISOString()
   };
 
@@ -887,11 +885,12 @@ function updateProfileMemory(id, userText, aiReply, grammarHint) {
 }
 
 async function fetchRealGeminiResponse(profile, userText) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${userGeminiApiKey}`;
+  const keyToUse = userGeminiApiKey && userGeminiApiKey.trim().length > 10 ? userGeminiApiKey : 'AIzaSyDemoKeyPlaceholderForVercel';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keyToUse}`;
   
   const historySnippet = (chatHistories[profile.id] || [])
-    .slice(-6)
-    .map(m => `${m.sender === 'user' ? 'Student' : 'Chloe'}: ${m.content}`)
+    .slice(-8)
+    .map(m => `${m.sender === 'user' ? profile.name : 'Chloe'}: ${m.content}`)
     .join("\n");
 
   const personaInstruction = selectedPersona === 'friend'
@@ -900,21 +899,21 @@ async function fetchRealGeminiResponse(profile, userText) {
     ? "Act as Chloe, an expert international travel & business guide!"
     : "Act as Chloe, a distinguished TESOL Master Professor giving precise feedback!";
 
-  const systemPrompt = `You are 'Chloe'. ${personaInstruction}
-You are on a 1:1 live video call with ${profile.name} (Age: ${profile.age}).
-CRITICAL DIALOGUE DIRECTIVES:
-1. NEVER quote raw user strings. Respond naturally to their meaning!
-2. Inspect user's input for grammar/tense/word-order errors and specify in 'grammarFixNote'.
-3. Speak in 1-2 SHORT, warm spoken conversational sentences.
-4. Perform 3-Stage Sentence Upgrade on user's input:
-   - nativeUpgrade: Everyday natural native phrasing.
-   - advancedUpgrade: C1/C2 vocabulary.
-5. reply: Spoken video response.
-6. translation: Korean translation.
-7. grammarHint: Native idiom.
-8. phonemeTip: Stress & intonation tip.
+  const systemPrompt = `You are 'Chloe', a Ph.D. TESOL Native Master English Teacher chatting on a 1:1 live video call with ${profile.name} (Age: ${profile.age}).
+${personaInstruction}
 
-Recent History:
+CRITICAL PEDAGOGICAL INSTRUCTIONS:
+1. READ & UNDERSTAND ${profile.name}'s specific message context deeply! Connect logically to what they just said.
+2. In 'grammarFixNote', inspect if the student's input had any grammar, tense, or word order errors in Korean (e.g. "어제 일인데 과거형went 대신 현재형go를 사용하셨어요!"). If input was fine, leave blank.
+3. Perform 3-Stage Sentence Upgrade:
+   - nativeUpgrade: Everyday natural native phrasing.
+   - advancedUpgrade: C1/C2 vocabulary version.
+4. reply: Spoken video response (1-2 short, warm, engaging sentences ending with a fun follow-up question to keep conversation flowing naturally!).
+5. translation: Natural Korean translation of reply.
+6. grammarHint: Useful native idiom or collocation.
+7. phonemeTip: Stress & intonation tip.
+
+Recent Conversation History:
 ${historySnippet}
 
 Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammarHint": "...", "phonemeTip": "...", "nativeUpgrade": "...", "advancedUpgrade": "...", "grammarFixNote": "..."}`;
@@ -934,7 +933,7 @@ Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammar
     body: JSON.stringify(bodyData)
   });
 
-  if (!res.ok) throw new Error("Gemini API Error");
+  if (!res.ok) throw new Error("Gemini API Call Exception");
   const data = await res.json();
   const jsonText = data.candidates[0].content.parts[0].text;
   return JSON.parse(jsonText);
@@ -1259,16 +1258,16 @@ function setupEventListeners() {
   saveSettingsBtn.addEventListener('click', () => {
     userGeminiApiKey = geminiKeyInput.value.trim();
     localStorage.setItem('lingo_gemini_api_key', userGeminiApiKey);
-    alert('설정이 저장되었습니다!');
+    alert('설정이 저장되었습니다! 이제 최고 지능 Gemini LLM 대화가 즉시 활성화됩니다.');
     settingsModal.classList.add('hidden');
   });
 
   resetBtn.addEventListener('click', () => {
     if (confirm('프로필과 대화 기록, 단어장을 모두 초기화하시겠습니까?')) {
-      localStorage.removeItem('lingo_profiles_v19');
-      localStorage.removeItem('lingo_chat_histories_v19');
-      localStorage.removeItem('lingo_profile_memories_v19');
-      localStorage.removeItem('lingo_user_flashcards_v19');
+      localStorage.removeItem('lingo_profiles_v20');
+      localStorage.removeItem('lingo_chat_histories_v20');
+      localStorage.removeItem('lingo_profile_memories_v20');
+      localStorage.removeItem('lingo_user_flashcards_v20');
       profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
       chatHistories = {};
       profileMemories = {};
