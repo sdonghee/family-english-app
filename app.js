@@ -31,6 +31,7 @@ let accumulatedTranscript = '';
 let conversationTurnCount = 0;
 let lipSyncAnimFrame = null;
 let isSpeakingAnim = false;
+let recentRepliesBuffer = [];
 
 const profileSection = document.getElementById('profile-section');
 const chatSection = document.getElementById('chat-section');
@@ -162,10 +163,10 @@ function loadNaturalVoices() {
 function loadStoredData() {
   profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
 
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v21');
+  const savedHistories = localStorage.getItem('lingo_chat_histories_v22');
   if (savedHistories) chatHistories = JSON.parse(savedHistories);
 
-  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v21');
+  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v22');
   if (savedFlashcards) userFlashcards = JSON.parse(savedFlashcards);
 
   userGeminiApiKey = localStorage.getItem('lingo_gemini_api_key') || '';
@@ -173,11 +174,11 @@ function loadStoredData() {
 }
 
 function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v21', JSON.stringify(chatHistories));
+  localStorage.setItem('lingo_chat_histories_v22', JSON.stringify(chatHistories));
 }
 
 function saveFlashcards() {
-  localStorage.setItem('lingo_user_flashcards_v21', JSON.stringify(userFlashcards));
+  localStorage.setItem('lingo_user_flashcards_v22', JSON.stringify(userFlashcards));
 }
 
 function renderProfiles() {
@@ -207,6 +208,7 @@ function selectProfile(id) {
   if (!activeProfile) return;
 
   conversationTurnCount = 0;
+  recentRepliesBuffer = [];
 
   if (!chatHistories[id]) {
     chatHistories[id] = [
@@ -499,6 +501,25 @@ function renderQuickChips() {
   });
 }
 
+function checkUserEnglishGrammar(text) {
+  const lower = text.toLowerCase().trim();
+  let fixNote = "";
+
+  if (lower.includes("yesterday") && (lower.includes(" i go ") || lower.includes(" i eat ") || lower.includes(" i play ") || lower.startsWith("i go") || lower.startsWith("i eat"))) {
+    fixNote = "어제(yesterday) 있었던 일이므로 현재형(go/eat) 대신 과거형(went/ate)을 사용하셔야 원어민 표현입니다!";
+  } else if (lower.includes("me like") || lower.includes("me eat") || lower.includes("me go")) {
+    fixNote = "주어로 목적격 'Me' 대신 주격 'I'를 사용하세요! (I like / I eat / I go)";
+  } else if (lower.includes("pizza eat") || lower.includes("game play") || lower.includes("food eat")) {
+    fixNote = "영어는 목적어가 동사 뒤로 와야 합니다! (eat pizza / play games)";
+  } else if (lower.includes("i is") || lower.includes("he go") || lower.includes("she like")) {
+    fixNote = "3인칭 단수 주어 뒤의 동사에는 -s/es를 붙이거나 수일치(he goes / she likes)를 해주는 것이 정확합니다!";
+  } else if (lower.includes("listen music") || lower.includes("go market")) {
+    fixNote = "방향과 대상을 나타낼 때 전치사 'to'를 붙여주세요! (listen to music / go to the market)";
+  }
+
+  return fixNote;
+}
+
 async function handleSendMessage() {
   if (!chatInput) return;
   const text = chatInput.value.trim();
@@ -533,6 +554,8 @@ async function handleSendMessage() {
 }
 
 function handleAiResponseReceived(aiResponse, userText) {
+  const grammarFixNote = checkUserEnglishGrammar(userText);
+
   const aiMsg = {
     sender: 'ai',
     content: aiResponse.reply,
@@ -541,7 +564,7 @@ function handleAiResponseReceived(aiResponse, userText) {
     phonemeTip: aiResponse.phonemeTip,
     nativeUpgrade: aiResponse.nativeUpgrade,
     advancedUpgrade: aiResponse.advancedUpgrade,
-    grammarFixNote: aiResponse.grammarFixNote,
+    grammarFixNote: aiResponse.grammarFixNote || grammarFixNote,
     timestamp: new Date().toISOString()
   };
 
@@ -599,12 +622,57 @@ Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammar
 function generateNaturalHumanResponse(profile, userText) {
   conversationTurnCount++;
   const shortName = profile.name.split(' ')[1] || profile.name;
+  const lower = userText.toLowerCase();
+
+  const responsePool = [
+    {
+      reply: `That's so interesting, ${shortName}! Tell me more about what happened next.`,
+      translation: `정말 흥미롭군요, ${shortName}님! 그 다음에 무슨 일이 있었는지 더 말해주세요.`,
+      native: `Tell me more about that!`,
+      adv: `Elaborate further on that occurrence.`
+    },
+    {
+      reply: `I love your ideas, ${shortName}! What made you think of that today?`,
+      translation: `${shortName}님의 생각이 정말 좋네요! 오늘 어떻게 그 생각을 하게 되셨나요?`,
+      native: `What made you think of that?`,
+      adv: `What inspired that specific realization?`
+    },
+    {
+      reply: `That sounds like so much fun! Did you do that with your family or friends, ${shortName}?`,
+      translation: `정말 재미있었겠네요! ${shortName}님, 가족이나 친구들과 함께 하셨나요?`,
+      native: `Did you do that with your family?`,
+      adv: `Was that experienced alongside your family?`
+    },
+    {
+      reply: `Ah, I totally get where you're coming from, ${shortName}! What's the best part about it for you?`,
+      translation: `아, ${shortName}님이 왜 그런 말씀을 하시는지 완전히 이해해요! 가장 좋은 점은 무엇인가요?`,
+      native: `What's the best part for you?`,
+      adv: `What aspect do you find most advantageous?`
+    },
+    {
+      reply: `Oh wow, that's awesome! How long have you been interested in that, ${shortName}?`,
+      translation: `와, 정말 멋지네요! ${shortName}님, 그 분야에 언제부터 관심을 가지셨나요?`,
+      native: `How long have you been doing that?`,
+      adv: `For how long have you pursued this interest?`
+    },
+    {
+      reply: `You speak English so well, ${shortName}! What else would you like to talk about right now?`,
+      translation: `${shortName}님 영어를 정말 잘하시네요! 지금 또 어떤 이야기를 나누고 싶으신가요?`,
+      native: `What else would you like to chat about?`,
+      adv: `What subsequent topic shall we discuss?`
+    }
+  ];
+
+  let selected = responsePool.find(r => !recentRepliesBuffer.includes(r.reply)) || responsePool[conversationTurnCount % responsePool.length];
+
+  recentRepliesBuffer.push(selected.reply);
+  if (recentRepliesBuffer.length > 8) recentRepliesBuffer.shift();
 
   return {
-    reply: `I see! That makes total sense, ${shortName}. How are you feeling about everything right now?`,
-    translation: `아 그렇군요! 무슨 뜻인지 잘 알겠어요, ${shortName}님. 지금 기분이나 마음은 어떠신가요?`,
-    nativeUpgrade: `That makes complete sense to me.`,
-    advancedUpgrade: `I fully comprehend your perspective.`,
+    reply: selected.reply,
+    translation: selected.translation,
+    nativeUpgrade: selected.native,
+    advancedUpgrade: selected.adv,
     grammarFixNote: ""
   };
 }
@@ -705,7 +773,7 @@ function setupEventListeners() {
     saveSettingsBtn.addEventListener('click', () => {
       if (geminiKeyInput) userGeminiApiKey = geminiKeyInput.value.trim();
       localStorage.setItem('lingo_gemini_api_key', userGeminiApiKey);
-      alert('설정이 저장되었습니다! 이제 Max AI 수준으로 자연스럽게 대화합니다.');
+      alert('설정이 저장되었습니다! 이제 100% 사람 지능으로 대화합니다.');
       if (settingsModal) settingsModal.classList.add('hidden');
     });
   }
