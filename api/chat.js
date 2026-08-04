@@ -12,7 +12,7 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: 'API key required' });
   }
 
-  const { userName, userAge, userText, history } = req.body || {};
+  const { userName, userAge, userText, history, flashcards, savedExpressions } = req.body || {};
   if (!userText) return res.status(400).json({ error: 'userText required' });
 
   // Clean student name (e.g., "첫째 하율 (쌍둥이)" -> "하율", "아빠" -> "아빠")
@@ -33,6 +33,16 @@ module.exports = async function handler(req, res) {
   } else if (Array.isArray(history) && history.length > 0) {
     formattedHistory = `\n\n## RECENT CONVERSATION HISTORY:\n` + 
       history.slice(-8).map(m => `${m.sender === 'user' ? cleanName : 'Chloe'}: ${m.content}`).join('\n');
+  }
+
+  // Format flashcards / saved expressions string if available
+  let formattedFlashcards = '';
+  const cards = flashcards || savedExpressions;
+  if (Array.isArray(cards) && cards.length > 0) {
+    formattedFlashcards = `\n\n## SAVED FLASHCARDS & PREVIOUS EXPRESSIONS:\n` +
+      cards.slice(-10).map(c => typeof c === 'string' ? `- ${c}` : `- ${c.native || c.original || c.content || JSON.stringify(c)}`).join('\n');
+  } else if (typeof cards === 'string' && cards.trim().length > 0) {
+    formattedFlashcards = `\n\n## SAVED FLASHCARDS & PREVIOUS EXPRESSIONS:\n${cards.trim()}`;
   }
 
   const systemPrompt = `You are 'Chloe', a warm, intelligent, Korean-American bilingual English professor. You grew up in Seoul until age 12, then moved to New York. You hold a Ph.D. in Applied Linguistics from Columbia University.
@@ -58,6 +68,17 @@ You are having a 1:1 live video call with ${cleanName}.
 - Integrate the student's name (${cleanName}) into natural sentences seamlessly (e.g., "Hi Dad!", "Hi ${cleanName}! How was your day?", "안녕 ${cleanName}아! 오늘 뭐 하고 놀았니?").
 - Ensure greetings and name calls are instant, clean, and fluid without hesitation or filler punctuation.
 
+## 🎓 EDUCATIONAL FEATURE 1: DAILY MINI MISSION (오늘의 미션 표현)
+- At the beginning of a conversation or during open turns, naturally incorporate a fun, age-appropriate mini-mission expression into your English reply.
+  - For young kids (<=6): Fun, ultra-simple expressions (e.g., "I like to...", "Can I have...").
+  - For elementary kids (7-10): Engaging target expressions suitable for their level (e.g., "I ended up doing...", "How come...", "I'm about to...").
+  - For teens/adults (11+): Sophisticated native expressions, phrasal verbs, or idioms.
+- Populate the "dailyMission" field in the JSON response with the target daily mission expression (e.g., "I ended up doing... (결국 ~하게 되었어)").
+
+## 🎓 EDUCATIONAL FEATURE 2: SPACED MEMORY REVIEW (지능형 이전 표현 복습)
+- If previous conversation history or saved flashcards/expressions are provided, warmly bring up a previously practiced expression in conversation when relevant or during open dialogue turns (e.g., "Remember when we talked about...?" / "Remember we practiced...?").
+- Reinforce memory naturally without sounding like a rigid test or quiz.
+
 ## 🔴 RESPONSE FORMAT (JSON STRICT)
 Return ONLY a valid JSON object matching this structure:
 {
@@ -67,8 +88,10 @@ Return ONLY a valid JSON object matching this structure:
   "nativeUpgrade": "원어민 세련된 표현 (참고용)",
   "advancedUpgrade": "C1/C2 고급 표현 (참고용)",
   "pronunciationTip": "발음/연음/억양 교정 팁 (한국어로 brief tip, 필요 없으면 빈 문자열 \"\")",
-  "practiceSentence": "추천 연습 문장 (필요 없으면 빈 문자열 \"\")"
-}${formattedHistory}`;
+  "practiceSentence": "추천 연습 문장 (필요 없으면 빈 문자열 \"\")",
+  "dailyMission": "오늘의 미션 표현 (e.g. 'I ended up doing...')",
+  "reportSummary": "오늘 대화의 1분 성취 포인트 요약 (한국어로)"
+}${formattedHistory}${formattedFlashcards}`;
 
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
@@ -111,4 +134,5 @@ Return ONLY a valid JSON object matching this structure:
     return res.status(500).json({ error: 'Server error', message: err.message });
   }
 };
+
 

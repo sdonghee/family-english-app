@@ -90,6 +90,12 @@ body {
   box-shadow: 0 4px 12px rgba(168, 85, 247, 0.35);
 }
 
+.icon-btn.highlight-gold {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.35);
+}
+
 .main-content {
   flex: 1;
   position: relative;
@@ -899,4 +905,233 @@ body {
 .modal-btn.secondary {
   background: #334155;
   color: #94a3b8;
+}
+
+/* 🎯 Daily Mission UI Banner */
+.daily-mission-banner {
+  background: linear-gradient(135deg, #1e1b4b, #312e81);
+  border-bottom: 1px solid rgba(168, 85, 247, 0.3);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 5;
+}
+
+.mission-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mission-tag {
+  font-size: 11px;
+  font-weight: 800;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.15);
+  padding: 3px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.mission-expression {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e0e7ff;
+}
+
+.mission-badge {
+  font-size: 10px;
+  font-weight: 800;
+  color: #a5b4fc;
+  background: #3730a3;
+  padding: 3px 10px;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+}
+
+.mission-badge.completed {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+  animation: missionPulse 1.5s infinite alternate;
+}
+
+@keyframes missionPulse {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.06); }
+}
+
+/* 🎭 Multi-Expression Avatar Moods & Smooth Badge Animations */
+.video-avatar-wrapper.happy .max-teacher-img {
+  filter: brightness(1.08) saturate(1.15);
+}
+
+.video-avatar-wrapper.happy::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top right, rgba(251, 191, 36, 0.15), transparent 70%);
+  pointer-events: none;
+}
+
+.video-avatar-wrapper.curious .max-teacher-img {
+  filter: brightness(1.04) contrast(1.05);
+}
+
+.video-avatar-wrapper.curious::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top left, rgba(56, 189, 248, 0.15), transparent 70%);
+  pointer-events: none;
+}
+
+.video-avatar-wrapper.focused .max-teacher-img {
+  filter: brightness(1.02) contrast(1.1);
+}
+
+.video-avatar-wrapper.focused::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at bottom, rgba(168, 85, 247, 0.15), transparent 70%);
+  pointer-events: none;
+}
+
+.video-avatar-wrapper.warm .max-teacher-img {
+  filter: brightness(1.05) saturate(1.05);
+}
+
+.video-avatar-wrapper.warm::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(244, 114, 182, 0.12), transparent 70%);
+  pointer-events: none;
+}
+
+/* Smooth badge animation & glowing pulse when speaking */
+.avatar-state-badge {
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.avatar-state-badge.speaking {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.95), rgba(99, 102, 241, 0.95));
+  border: 1px solid rgba(192, 132, 252, 0.6);
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.6);
+}
+
+.video-avatar-wrapper.talking {
+  box-shadow: inset 0 0 35px rgba(168, 85, 247, 0.6), 0 0 25px rgba(168, 85, 247, 0.4);
+  animation: avatarSpeakingGlow 1.2s infinite alternate;
+}
+
+@keyframes avatarSpeakingGlow {
+  0% {
+    box-shadow: inset 0 0 20px rgba(168, 85, 247, 0.4), 0 0 15px rgba(168, 85, 247, 0.3);
+  }
+  100% {
+    box-shadow: inset 0 0 45px rgba(168, 85, 247, 0.8), 0 0 30px rgba(168, 85, 247, 0.6);
+  }
+}
+
+/* 📊 Report Modal Card Styling */
+.report-card {
+  text-align: left;
+  max-width: 420px;
+  background: linear-gradient(180deg, #1e293b, #0f172a);
+}
+
+.report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.report-stat-card {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.report-stat-card.full-width {
+  grid-column: span 2;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+}
+
+.stat-icon {
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-size: 22px;
+  font-weight: 900;
+  color: #fbbf24;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.stat-info {
+  flex: 1;
+}
+
+.stat-progress-bar {
+  width: 100%;
+  height: 8px;
+  background: #334155;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 6px 0;
+}
+
+.stat-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #38bdf8, #818cf8);
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+.stat-progress-text {
+  font-size: 11px;
+  color: #cbd5e1;
+  font-weight: 700;
+}
+
+.report-feedback-box {
+  background: #1e1b4b;
+  border: 1px solid #4338ca;
+  border-radius: 16px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.report-feedback-box h4 {
+  font-size: 13px;
+  color: #a5b4fc;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.report-feedback-box p {
+  font-size: 12px;
+  color: #e0e7ff;
+  line-height: 1.5;
 }

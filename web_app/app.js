@@ -32,6 +32,20 @@ let conversationTurnCount = 0;
 let isSpeakingAnim = false;
 let recentRepliesBuffer = [];
 
+let currentDailyMission = {
+  expression: "Could you tell me more?",
+  completed: false
+};
+
+const DAILY_MISSIONS = [
+  "Could you tell me more?",
+  "How is your day going?",
+  "I love playing games!",
+  "Make sure to get rest!",
+  "What is your favorite food?",
+  "Tell me a fun story!"
+];
+
 const profileSection = document.getElementById('profile-section');
 const chatSection = document.getElementById('chat-section');
 const profileGrid = document.getElementById('profile-grid');
@@ -55,6 +69,7 @@ const micIcon = document.getElementById('mic-icon');
 const micLabel = document.getElementById('mic-label');
 const settingsBtn = document.getElementById('settings-btn');
 const deckBtn = document.getElementById('deck-btn');
+const reportBtn = document.getElementById('report-btn');
 
 const settingsModal = document.getElementById('settings-modal');
 const geminiKeyInput = document.getElementById('gemini-key-input');
@@ -69,6 +84,16 @@ const deckModal = document.getElementById('deck-modal');
 const deckCardContainer = document.getElementById('deck-card-container');
 const closeDeckBtn = document.getElementById('close-deck-btn');
 
+const reportModal = document.getElementById('report-modal');
+const closeReportBtn = document.getElementById('close-report-btn');
+const reportTotalTurns = document.getElementById('report-total-turns');
+const reportNativeCount = document.getElementById('report-native-count');
+const reportMissionFill = document.getElementById('report-mission-fill');
+const reportMissionText = document.getElementById('report-mission-text');
+const reportFeedbackSummary = document.getElementById('report-feedback-summary');
+const missionExpressionText = document.getElementById('mission-expression-text');
+const missionStatusBadge = document.getElementById('mission-status-badge');
+
 function initApp() {
   loadStoredData();
   renderProfiles();
@@ -76,7 +101,85 @@ function initApp() {
   setupSpeechRecognition();
   loadNaturalVoices();
   setupEventListeners();
+  initDailyMission();
   // Avatar animations handled by CSS
+}
+
+function setAvatarMood(mood) {
+  const wrapper = document.getElementById('video-avatar-wrapper');
+  if (!wrapper) return;
+  wrapper.classList.remove('happy', 'curious', 'focused', 'warm');
+  if (['happy', 'curious', 'focused', 'warm'].includes(mood)) {
+    wrapper.classList.add(mood);
+  }
+}
+
+function initDailyMission() {
+  const charCode = activeProfile && activeProfile.id ? activeProfile.id.charCodeAt(0) : 65;
+  const idx = Math.abs(charCode + new Date().getDate()) % DAILY_MISSIONS.length;
+  currentDailyMission.expression = DAILY_MISSIONS[idx];
+  currentDailyMission.completed = false;
+
+  if (missionExpressionText) {
+    missionExpressionText.innerText = `"${currentDailyMission.expression}"`;
+  }
+  if (missionStatusBadge) {
+    missionStatusBadge.innerText = "진행 중 🎯";
+    missionStatusBadge.classList.remove('completed');
+  }
+}
+
+function checkMissionCompletion(userText, aiReply) {
+  if (!currentDailyMission || currentDailyMission.completed) return;
+  
+  const textToCheck = ((userText || "") + " " + (aiReply || "")).toLowerCase();
+  const targetWords = currentDailyMission.expression.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(' ').filter(w => w.length > 2);
+  const matched = targetWords.filter(w => textToCheck.includes(w));
+  
+  if (matched.length >= Math.min(2, targetWords.length)) {
+    currentDailyMission.completed = true;
+    if (missionStatusBadge) {
+      missionStatusBadge.innerText = "달성 완료! 🎉";
+      missionStatusBadge.classList.add('completed');
+    }
+  }
+}
+
+function openReportModal() {
+  if (!reportModal) return;
+
+  const userMsgs = activeProfile && chatHistories[activeProfile.id] 
+    ? chatHistories[activeProfile.id].filter(m => m.sender === 'user').length 
+    : 0;
+  const turns = conversationTurnCount > 0 ? conversationTurnCount : userMsgs;
+  const nativeCount = userFlashcards ? userFlashcards.length : 0;
+  const isMissionDone = currentDailyMission.completed;
+
+  if (reportTotalTurns) reportTotalTurns.innerText = turns;
+  if (reportNativeCount) reportNativeCount.innerText = nativeCount;
+
+  if (reportMissionFill && reportMissionText) {
+    if (isMissionDone) {
+      reportMissionFill.style.width = "100%";
+      reportMissionText.innerText = `미션 달성 완료! 🎉 ("${currentDailyMission.expression}")`;
+    } else {
+      reportMissionFill.style.width = "40%";
+      reportMissionText.innerText = `미션 진행 중 🎯 ("${currentDailyMission.expression}")`;
+    }
+  }
+
+  if (reportFeedbackSummary) {
+    const pName = activeProfile ? activeProfile.name : '학습자';
+    if (turns === 0) {
+      reportFeedbackSummary.innerText = `안녕하세요 ${pName}님! Chloe 선생님과의 대화를 시작하시면 오늘의 1분 성취 리포트가 자동으로 기록됩니다. 🎙️`;
+    } else if (turns < 3) {
+      reportFeedbackSummary.innerText = `${pName}님, 좋은 시작이에요! 총 ${turns}번의 대화를 주고받았습니다. 더 많은 문장을 말해보고 원어민 어휘를 수집해보세요! 💪`;
+    } else {
+      reportFeedbackSummary.innerText = `대단해요, ${pName}님! 총 ${turns}번의 대화 동안 ${nativeCount}개의 원어민 표현을 수집하셨네요! 적극적인 대화 참여와 발음 시도가 최고입니다. 🌟`;
+    }
+  }
+
+  reportModal.classList.remove('hidden');
 }
 
 function setAvatarState(state) {
@@ -94,11 +197,13 @@ function setAvatarState(state) {
       if (wrapper) wrapper.classList.add('listening');
       if (badge) badge.classList.add('listening');
       if (stateText) stateText.textContent = '경청 중 🎧';
+      setAvatarMood('curious');
       break;
     case 'thinking':
       if (wrapper) wrapper.classList.add('thinking');
       if (badge) badge.classList.add('thinking');
       if (stateText) stateText.textContent = '생각 중 🤔';
+      setAvatarMood('focused');
       break;
     case 'speaking':
       if (wrapper) wrapper.classList.add('talking');
@@ -275,6 +380,7 @@ function selectProfile(id) {
   if (activeProfileHeader) activeProfileHeader.innerHTML = `${activeProfile.avatarIcon} <span>${activeProfile.name}</span>`;
   renderMessages();
   renderQuickChips();
+  initDailyMission();
 
   if (profileSection) profileSection.classList.remove('active');
   if (chatSection) chatSection.classList.add('active');
@@ -742,6 +848,19 @@ function handleAiResponseReceived(aiResponse, userText) {
   }
 
   updateVideoOverlaySubtitles(aiResponse.reply, aiResponse.translation);
+
+  // Avatar Mood selection (happy, curious, focused, warm)
+  let mood = 'warm';
+  if (aiMsg.grammarFixNote || aiMsg.pronunciationTip) {
+    mood = 'focused';
+  } else if (userText.includes('?') || aiResponse.reply.includes('?')) {
+    mood = 'curious';
+  } else if (/great|happy|love|fun|awesome|good|wonderful|nice|playing/i.test(aiResponse.reply + ' ' + userText)) {
+    mood = 'happy';
+  }
+  setAvatarMood(mood);
+  checkMissionCompletion(userText, aiResponse.reply);
+
   speakText(aiResponse.reply);
 }
 
@@ -969,6 +1088,16 @@ function setupEventListeners() {
       localStorage.setItem('lingo_gemini_api_key', userGeminiApiKey);
       alert('설정이 성공적으로 저장되었습니다! 이제 Gemini AI가 100% 똑똑하게 대화합니다.');
       if (settingsModal) settingsModal.classList.add('hidden');
+    });
+  }
+
+  if (reportBtn) {
+    reportBtn.addEventListener('click', openReportModal);
+  }
+
+  if (closeReportBtn) {
+    closeReportBtn.addEventListener('click', () => {
+      if (reportModal) reportModal.classList.add('hidden');
     });
   }
 }

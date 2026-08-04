@@ -14,6 +14,7 @@
       <div class="header-content">
         <h1 class="logo"><span>Max AI</span> 1:1 Video PT</h1>
         <div class="header-actions">
+          <button id="report-btn" class="icon-btn highlight-gold">📊 학습 리포트</button>
           <button id="roleplay-btn" class="icon-btn highlight">🎭 상황 롤플레이</button>
           <button id="deck-btn" class="icon-btn">🎴 단어장</button>
           <button id="settings-btn" class="icon-btn">⚙️</button>
@@ -46,6 +47,15 @@
           <div class="active-profile-header" id="active-profile-header">
             <!-- 활성 프로필 -->
           </div>
+        </div>
+
+        <!-- Daily Mission UI Banner -->
+        <div class="daily-mission-banner" id="daily-mission-banner">
+          <div class="mission-content">
+            <span class="mission-tag">🎯 오늘의 미션</span>
+            <span class="mission-expression" id="mission-expression-text">"Could you tell me more?"</span>
+          </div>
+          <span class="mission-badge" id="mission-status-badge">진행 중 🎯</span>
         </div>
 
         <!-- Max AI 라이브 비디오 스트림 스테이지 (Continuous Live Motion Video) -->
@@ -141,6 +151,42 @@
           <button id="save-settings-btn" class="modal-btn">저장</button>
           <button id="close-settings-btn" class="modal-btn secondary">취소</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 오늘의 1분 대화 성취 리포트 모달 -->
+    <div id="report-modal" class="modal-overlay hidden">
+      <div class="modal-card report-card">
+        <h3>📊 오늘의 1분 대화 성취 리포트</h3>
+        <p class="sub-desc">Chloe 선생님과의 오늘 학습 성과 분석</p>
+        
+        <div class="report-grid">
+          <div class="report-stat-card">
+            <div class="stat-icon">💬</div>
+            <div class="stat-value" id="report-total-turns">0</div>
+            <div class="stat-label">총 대화 턴 수</div>
+          </div>
+          <div class="report-stat-card">
+            <div class="stat-icon">💎</div>
+            <div class="stat-value" id="report-native-count">0</div>
+            <div class="stat-label">수집된 원어민 표현</div>
+          </div>
+          <div class="report-stat-card full-width">
+            <div class="stat-icon">🎯</div>
+            <div class="stat-info">
+              <div class="stat-label">오늘의 미션 달성률</div>
+              <div class="stat-progress-bar"><div class="stat-progress-fill" id="report-mission-fill" style="width: 0%;"></div></div>
+              <div class="stat-progress-text" id="report-mission-text">미션 진행 중 🎯</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="report-feedback-box">
+          <h4>👩‍🏫 Chloe 선생님의 1분 피드백</h4>
+          <p id="report-feedback-summary">오늘 선생님과 적극적으로 영어 대화를 이어가셨어요! 멋진 발음과 다양한 표현 시도가 돋보냈습니다.</p>
+        </div>
+
+        <button id="close-report-btn" class="modal-btn secondary">닫기</button>
       </div>
     </div>
   </div>
