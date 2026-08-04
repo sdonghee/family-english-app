@@ -535,6 +535,8 @@ function fillPracticeSentence(text) {
 function speakText(text) {
   if (!('speechSynthesis' in window)) return;
   
+  // 🔇 중요: 선생님이 말할 때는 마이크를 즉시 완전히 꺼서 스피커 소리가 마이크로 재입력되는 피드백 에코 루프 차단!
+  stopListening();
   window.speechSynthesis.cancel();
   if (!naturalEnVoice) loadNaturalVoices();
 
@@ -544,7 +546,7 @@ function speakText(text) {
   if (aiHumanStage) aiHumanStage.classList.add('speaking');
   startTalkingAvatarLoop();
 
-  if (lingoStatusTag) lingoStatusTag.innerText = "🗣️ Chloe 선생님이 품격 있고 부드러운 목소리로 대화하는 중...";
+  if (lingoStatusTag) lingoStatusTag.innerText = "🗣️ Chloe 선생님이 부드러운 목소리로 대화하는 중...";
 
   let currentIdx = 0;
 
@@ -561,14 +563,14 @@ function speakText(text) {
       clearInterval(resumeTimer);
       if (aiHumanStage) aiHumanStage.classList.remove('speaking');
       stopTalkingAvatarLoop();
-      if (lingoStatusTag) lingoStatusTag.innerText = "🎤 경청 중... 말씀을 마치시면 Chloe 선생님이 대답합니다.";
+      if (lingoStatusTag) lingoStatusTag.innerText = "🎤 경청 중... 편하게 말씀해 주세요!";
       
-      // 🎧 핸즈프리 화상 통화: 선생님 말이 끝나면 0.6초 후 마이크 자동 활성화
+      // 🎧 선생님 발화가 완전히 끝난 뒤 스피커 여운이 사라지는 1.2초 후 마이크를 안심하게 재활성화
       setTimeout(() => {
-        if (!isListening) {
+        if (!isListening && !window.speechSynthesis.speaking) {
           startListening();
         }
-      }, 600);
+      }, 1200);
       return;
     }
 
@@ -711,6 +713,11 @@ function toggleListening() {
 
 function startListening() {
   if (!recognition || isListening) return;
+  // 선생님이 아직 말하고 있을 때는 마이크가 절대로 켜지지 않도록 철저한 에코 방지!
+  if ('speechSynthesis' in window && window.speechSynthesis.speaking) {
+    console.log("Speech synthesis is currently active. Delaying mic activation.");
+    return;
+  }
   try {
     if (chatInput) chatInput.value = '';
     accumulatedTranscript = '';
