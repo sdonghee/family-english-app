@@ -503,7 +503,8 @@ async function handleSendMessage() {
       return;
     }
   } catch (e) {
-    console.warn("Gemini API Call fallback", e);
+    console.error("API Error:", e);
+    if (lingoStatusTag) lingoStatusTag.innerText = "⚠️ AI 연결 중... 오프라인 모드로 전환: " + e.message;
   }
 
   setTimeout(() => {
@@ -550,21 +551,43 @@ async function fetchRealGeminiResponse(profile, userText) {
     apiKey: userGeminiApiKey || ''
   };
 
-  // 1차 시도: Vercel 서버 API (서버에 API 키가 있으면 자동 작동)
-  const res = await fetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody)
-  });
+  // 15초 타임아웃
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.message || "API call failed");
+  try {
+    if (lingoStatusTag) lingoStatusTag.innerText = "🔄 Chloe 교수님과 연결 중...";
+
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => 'Unknown error');
+      console.error("API response error:", res.status, errText);
+      throw new Error(`서버 응답 에러 (${res.status}): ${errText.substring(0, 100)}`);
+    }
+
+    const data = await res.json();
+    if (!data.reply) {
+      console.error("No reply in data:", data);
+      throw new Error("AI 응답에 reply가 없습니다");
+    }
+    
+    if (lingoStatusTag) lingoStatusTag.innerText = "✅ Chloe 교수님 응답 완료!";
+    return data;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error("서버 응답 시간 초과 (15초)");
+    }
+    throw err;
   }
-
-  const data = await res.json();
-  if (!data.reply) throw new Error("No reply from AI");
-  return data;
 }
 
 // 🧠 문맥을 100% 반영해 질문에 '진짜 대답'하는 초스마트 오프라인 추론 엔진
@@ -678,6 +701,18 @@ function setupEventListeners() {
     hintToggleBtn.addEventListener('click', () => {
       if (speechKrSub) {
         speechKrSub.style.display = speechKrSub.style.display === 'none' ? 'block' : 'none';
+      }
+    });
+  }
+
+  const clearChatBtn = document.getElementById('clear-chat-btn');
+  if (clearChatBtn) {
+    clearChatBtn.addEventListener('click', () => {
+      if (activeProfile && confirm('대화 기록을 초기화할까요?')) {
+        chatHistories[activeProfile.id] = [];
+        saveHistories();
+        renderMessages();
+        if (lingoStatusTag) lingoStatusTag.innerText = "🗑️ 대화 기록이 초기화되었습니다. 새로운 대화를 시작하세요!";
       }
     });
   }
