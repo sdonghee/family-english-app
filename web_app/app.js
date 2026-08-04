@@ -85,7 +85,6 @@ function initLipSyncCanvas() {
   lipSyncCanvas.height = lipSyncCanvas.offsetHeight || 275;
 }
 
-// 👄 실제 말하는 아바타 입 모양 립싱크 캔버스 루프 (Max AI Dynamic Talking Avatar Loop)
 function startTalkingAvatarLoop() {
   if (!lipSyncCanvas) return;
   const ctx = lipSyncCanvas.getContext('2d');
@@ -182,6 +181,7 @@ function saveFlashcards() {
 }
 
 function renderProfiles() {
+  if (!profileGrid) return;
   profileGrid.innerHTML = '';
 
   profiles.forEach(p => {
@@ -220,12 +220,12 @@ function selectProfile(id) {
     saveHistories();
   }
 
-  activeProfileHeader.innerHTML = `${activeProfile.avatarIcon} <span>${activeProfile.name}</span>`;
+  if (activeProfileHeader) activeProfileHeader.innerHTML = `${activeProfile.avatarIcon} <span>${activeProfile.name}</span>`;
   renderMessages();
   renderQuickChips();
 
-  profileSection.classList.remove('active');
-  chatSection.classList.add('active');
+  if (profileSection) profileSection.classList.remove('active');
+  if (chatSection) chatSection.classList.add('active');
 
   const welcomeMsg = chatHistories[id][0];
   updateVideoOverlaySubtitles(welcomeMsg.content, welcomeMsg.translation);
@@ -260,6 +260,7 @@ function updateVideoOverlaySubtitles(enText, krText) {
 }
 
 function renderMessages() {
+  if (!chatMessages) return;
   chatMessages.innerHTML = '';
   const messages = chatHistories[activeProfile.id] || [];
 
@@ -285,7 +286,6 @@ function renderMessages() {
     }
 
     if (msg.nativeUpgrade || msg.advancedUpgrade) {
-      const nativeClean = (msg.nativeUpgrade || '').replace(/'/g, "\\'");
       contentHtml += `
         <div class="upgrade-elevator">
           <div class="upgrade-title">💎 3단계 문장 엘리베이터</div>
@@ -336,18 +336,18 @@ function speakText(text) {
 
     const chunks = cleanSpeech.match(/[^.!?]+[.!?]+/g) || [cleanSpeech];
 
-    aiHumanStage.classList.add('speaking');
+    if (aiHumanStage) aiHumanStage.classList.add('speaking');
     startTalkingAvatarLoop();
 
-    lingoStatusTag.innerText = "👩‍🏫 Chloe 선생님이 실제 입을 움직이며 화상 통화 중...";
+    if (lingoStatusTag) lingoStatusTag.innerText = "👩‍🏫 Chloe 선생님이 실제 입을 움직이며 화상 통화 중...";
 
     let currentIdx = 0;
 
     const playNextChunk = () => {
       if (currentIdx >= chunks.length) {
-        aiHumanStage.classList.remove('speaking');
+        if (aiHumanStage) aiHumanStage.classList.remove('speaking');
         stopTalkingAvatarLoop();
-        lingoStatusTag.innerText = "👩‍🏫 마이크를 누르고 원어민 선생님과 실제 화상 통화를 시작하세요!";
+        if (lingoStatusTag) lingoStatusTag.innerText = "👩‍🏫 마이크를 누르고 원어민 선생님과 실제 화상 통화를 시작하세요!";
         return;
       }
 
@@ -394,10 +394,10 @@ function setupSpeechRecognition() {
   recognition.onstart = () => {
     isListening = true;
     accumulatedTranscript = '';
-    giantMicBtn.classList.add('listening');
-    micIcon.innerText = "🔴";
-    micLabel.innerText = "화상 통화 중...";
-    lingoStatusTag.innerText = "🎤 편하게 말씀을 이어나가세요. Chloe 선생님이 경청하고 있어요...";
+    if (giantMicBtn) giantMicBtn.classList.add('listening');
+    if (micIcon) micIcon.innerText = "🔴";
+    if (micLabel) micLabel.innerText = "화상 통화 중...";
+    if (lingoStatusTag) lingoStatusTag.innerText = "🎤 편하게 말씀을 이어나가세요. Chloe 선생님이 경청하고 있어요...";
   };
 
   recognition.onresult = (event) => {
@@ -417,12 +417,12 @@ function setupSpeechRecognition() {
     }
 
     const currentText = accumulatedTranscript + (interim ? ' ' + interim : '');
-    chatInput.value = currentText;
+    if (chatInput) chatInput.value = currentText;
 
     if (speechPauseTimer) clearTimeout(speechPauseTimer);
 
     speechPauseTimer = setTimeout(() => {
-      if (chatInput.value.trim().length > 0) {
+      if (chatInput && chatInput.value.trim().length > 0) {
         stopListening();
         handleSendMessage();
       }
@@ -435,7 +435,7 @@ function setupSpeechRecognition() {
   };
 
   recognition.onend = () => {
-    if (isListening && chatInput.value.trim().length > 0) {
+    if (isListening && chatInput && chatInput.value.trim().length > 0) {
       handleSendMessage();
     }
     stopListening();
@@ -452,11 +452,11 @@ function toggleListening() {
     if (speechPauseTimer) clearTimeout(speechPauseTimer);
     recognition.stop();
     stopListening();
-    if (chatInput.value.trim().length > 0) {
+    if (chatInput && chatInput.value.trim().length > 0) {
       handleSendMessage();
     }
   } else {
-    chatInput.value = '';
+    if (chatInput) chatInput.value = '';
     accumulatedTranscript = '';
     recognition.start();
   }
@@ -465,13 +465,14 @@ function toggleListening() {
 function stopListening() {
   isListening = false;
   if (speechPauseTimer) clearTimeout(speechPauseTimer);
-  giantMicBtn.classList.remove('listening');
-  micIcon.innerText = "🎙️";
-  micLabel.innerText = "화상 대화 시작하기";
-  lingoStatusTag.innerText = "👩‍🏫 마이크를 누르거나 화면을 터치해 실제 화상 통화처럼 대화하세요!";
+  if (giantMicBtn) giantMicBtn.classList.remove('listening');
+  if (micIcon) micIcon.innerText = "🎙️";
+  if (micLabel) micLabel.innerText = "화상 대화 시작하기";
+  if (lingoStatusTag) lingoStatusTag.innerText = "👩‍🏫 마이크를 누르거나 화면을 터치해 실제 화상 통화처럼 대화하세요!";
 }
 
 function renderQuickChips() {
+  if (!quickChipsContainer) return;
   quickChipsContainer.innerHTML = '';
   if (!activeProfile) return;
 
@@ -491,7 +492,7 @@ function renderQuickChips() {
     btn.className = 'chip';
     btn.innerText = text;
     btn.addEventListener('click', () => {
-      chatInput.value = text;
+      if (chatInput) chatInput.value = text;
       handleSendMessage();
     });
     quickChipsContainer.appendChild(btn);
@@ -499,6 +500,7 @@ function renderQuickChips() {
 }
 
 async function handleSendMessage() {
+  if (!chatInput) return;
   const text = chatInput.value.trim();
   if (!text || !activeProfile) return;
 
@@ -514,7 +516,7 @@ async function handleSendMessage() {
   saveHistories();
   renderMessages();
 
-  lingoStatusTag.innerText = "🤔 Chloe 선생님이 대화를 깊이 이해하며 생각을 정리하는 중...";
+  if (lingoStatusTag) lingoStatusTag.innerText = "🤔 Chloe 선생님이 대화를 깊이 이해하며 생각을 정리하는 중...";
 
   try {
     const resp = await fetchRealGeminiResponse(activeProfile, text);
@@ -608,6 +610,7 @@ function generateNaturalHumanResponse(profile, userText) {
 }
 
 function renderRoleplayModal() {
+  if (!roleplayGrid) return;
   roleplayGrid.innerHTML = '';
   ROLEPLAY_SCENARIOS.forEach(s => {
     const item = document.createElement('div');
@@ -623,7 +626,7 @@ function renderRoleplayModal() {
 
 function startRoleplayScenario(scenario) {
   activeRoleplay = scenario;
-  roleplayModal.classList.add('hidden');
+  if (roleplayModal) roleplayModal.classList.add('hidden');
 
   const startMsg = {
     sender: 'ai',
@@ -641,16 +644,18 @@ function startRoleplayScenario(scenario) {
 }
 
 function setupEventListeners() {
-  backToProfilesBtn.addEventListener('click', () => {
-    renderProfiles();
-    chatSection.classList.remove('active');
-    profileSection.classList.add('active');
-  });
+  if (backToProfilesBtn) {
+    backToProfilesBtn.addEventListener('click', () => {
+      renderProfiles();
+      if (chatSection) chatSection.classList.remove('active');
+      if (profileSection) profileSection.classList.add('active');
+    });
+  }
 
-  sendBtn.addEventListener('click', handleSendMessage);
-  giantMicBtn.addEventListener('click', toggleListening);
-  aiHumanStage.addEventListener('click', toggleListening);
-  deckBtn.addEventListener('click', () => deckModal.classList.remove('hidden'));
+  if (sendBtn) sendBtn.addEventListener('click', handleSendMessage);
+  if (giantMicBtn) giantMicBtn.addEventListener('click', toggleListening);
+  if (aiHumanStage) aiHumanStage.addEventListener('click', toggleListening);
+  if (deckBtn) deckBtn.addEventListener('click', () => { if (deckModal) deckModal.classList.remove('hidden'); });
 
   if (hintToggleBtn) {
     hintToggleBtn.addEventListener('click', () => {
@@ -660,36 +665,50 @@ function setupEventListeners() {
     });
   }
 
-  roleplayBtn.addEventListener('click', () => {
-    roleplayModal.classList.remove('hidden');
-  });
+  if (roleplayBtn) {
+    roleplayBtn.addEventListener('click', () => {
+      if (roleplayModal) roleplayModal.classList.remove('hidden');
+    });
+  }
 
-  closeRoleplayBtn.addEventListener('click', () => {
-    roleplayModal.classList.add('hidden');
-  });
+  if (closeRoleplayBtn) {
+    closeRoleplayBtn.addEventListener('click', () => {
+      if (roleplayModal) roleplayModal.classList.add('hidden');
+    });
+  }
 
-  closeDeckBtn.addEventListener('click', () => {
-    deckModal.classList.add('hidden');
-  });
+  if (closeDeckBtn) {
+    closeDeckBtn.addEventListener('click', () => {
+      if (deckModal) deckModal.classList.add('hidden');
+    });
+  }
 
-  chatInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') handleSendMessage();
-  });
+  if (chatInput) {
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleSendMessage();
+    });
+  }
 
-  settingsBtn.addEventListener('click', () => {
-    settingsModal.classList.remove('hidden');
-  });
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => {
+      if (settingsModal) settingsModal.classList.remove('hidden');
+    });
+  }
 
-  closeSettingsBtn.addEventListener('click', () => {
-    settingsModal.classList.add('hidden');
-  });
+  if (closeSettingsBtn) {
+    closeSettingsBtn.addEventListener('click', () => {
+      if (settingsModal) settingsModal.classList.add('hidden');
+    });
+  }
 
-  saveSettingsBtn.addEventListener('click', () => {
-    userGeminiApiKey = geminiKeyInput.value.trim();
-    localStorage.setItem('lingo_gemini_api_key', userGeminiApiKey);
-    alert('설정이 저장되었습니다! 이제 Max AI 수준으로 자연스럽게 대화합니다.');
-    settingsModal.classList.add('hidden');
-  });
+  if (saveSettingsBtn) {
+    saveSettingsBtn.addEventListener('click', () => {
+      if (geminiKeyInput) userGeminiApiKey = geminiKeyInput.value.trim();
+      localStorage.setItem('lingo_gemini_api_key', userGeminiApiKey);
+      alert('설정이 저장되었습니다! 이제 Max AI 수준으로 자연스럽게 대화합니다.');
+      if (settingsModal) settingsModal.classList.add('hidden');
+    });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
