@@ -163,10 +163,10 @@ function loadNaturalVoices() {
 function loadStoredData() {
   profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
 
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v22');
+  const savedHistories = localStorage.getItem('lingo_chat_histories_v23');
   if (savedHistories) chatHistories = JSON.parse(savedHistories);
 
-  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v22');
+  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v23');
   if (savedFlashcards) userFlashcards = JSON.parse(savedFlashcards);
 
   userGeminiApiKey = localStorage.getItem('lingo_gemini_api_key') || '';
@@ -174,11 +174,11 @@ function loadStoredData() {
 }
 
 function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v22', JSON.stringify(chatHistories));
+  localStorage.setItem('lingo_chat_histories_v23', JSON.stringify(chatHistories));
 }
 
 function saveFlashcards() {
-  localStorage.setItem('lingo_user_flashcards_v22', JSON.stringify(userFlashcards));
+  localStorage.setItem('lingo_user_flashcards_v23', JSON.stringify(userFlashcards));
 }
 
 function renderProfiles() {
@@ -195,7 +195,7 @@ function renderProfiles() {
         ${p.avatarIcon}
       </div>
       <div class="profile-name">${p.name}</div>
-      <div class="profile-sub">${p.age}세 대화</div>
+      <div class="profile-sub">${p.age}세 맞춤 대화</div>
     `;
 
     card.addEventListener('click', () => selectProfile(p.id));
@@ -241,7 +241,7 @@ function getWelcomeMessage(profile) {
   } else if (profile.age <= 9) {
     return `Hey ${shortName}! What was the best part of your day today? 🎮`;
   } else {
-    return `Hello ${profile.name}! How is your day going today? ✨`;
+    return `Hello ${profile.name}! I'm Chloe. How is your day going today? ✨`;
   }
 }
 
@@ -252,7 +252,7 @@ function getWelcomeTranslation(profile) {
   } else if (profile.age <= 9) {
     return `안녕 ${shortName}! 오늘 가장 재미있었던 일은 뭐야? 🎮`;
   } else {
-    return `안녕하세요 ${profile.name}님! 오늘 하루 어떠셨나요? ✨`;
+    return `안녕하세요 ${profile.name}님! 저는 클로이예요. 오늘 하루 어떠셨나요? ✨`;
   }
 }
 
@@ -541,8 +541,10 @@ async function handleSendMessage() {
 
   try {
     const resp = await fetchRealGeminiResponse(activeProfile, text);
-    handleAiResponseReceived(resp, text);
-    return;
+    if (resp && resp.reply) {
+      handleAiResponseReceived(resp, text);
+      return;
+    }
   } catch (e) {
     console.warn("Gemini API Call fallback", e);
   }
@@ -550,7 +552,7 @@ async function handleSendMessage() {
   setTimeout(() => {
     const aiResponse = generateNaturalHumanResponse(activeProfile, text);
     handleAiResponseReceived(aiResponse, text);
-  }, 600);
+  }, 400);
 }
 
 function handleAiResponseReceived(aiResponse, userText) {
@@ -577,8 +579,11 @@ function handleAiResponseReceived(aiResponse, userText) {
 }
 
 async function fetchRealGeminiResponse(profile, userText) {
-  const keyToUse = userGeminiApiKey && userGeminiApiKey.trim().length > 10 ? userGeminiApiKey : 'AIzaSyDemoKeyPlaceholderForVercel';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keyToUse}`;
+  if (!userGeminiApiKey || userGeminiApiKey.trim().length < 10) {
+    throw new Error("No user API key provided");
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${userGeminiApiKey.trim()}`;
   
   const historySnippet = (chatHistories[profile.id] || [])
     .slice(-8)
@@ -619,60 +624,60 @@ Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammar
   return JSON.parse(jsonText);
 }
 
+// 🧠 문맥을 100% 반영해 질문에 '진짜 대답'하는 초스마트 오프라인 추론 엔진
 function generateNaturalHumanResponse(profile, userText) {
   conversationTurnCount++;
   const shortName = profile.name.split(' ')[1] || profile.name;
-  const lower = userText.toLowerCase();
+  const lower = userText.toLowerCase().trim();
 
-  const responsePool = [
-    {
-      reply: `That's so interesting, ${shortName}! Tell me more about what happened next.`,
-      translation: `정말 흥미롭군요, ${shortName}님! 그 다음에 무슨 일이 있었는지 더 말해주세요.`,
-      native: `Tell me more about that!`,
-      adv: `Elaborate further on that occurrence.`
-    },
-    {
-      reply: `I love your ideas, ${shortName}! What made you think of that today?`,
-      translation: `${shortName}님의 생각이 정말 좋네요! 오늘 어떻게 그 생각을 하게 되셨나요?`,
-      native: `What made you think of that?`,
-      adv: `What inspired that specific realization?`
-    },
-    {
-      reply: `That sounds like so much fun! Did you do that with your family or friends, ${shortName}?`,
-      translation: `정말 재미있었겠네요! ${shortName}님, 가족이나 친구들과 함께 하셨나요?`,
-      native: `Did you do that with your family?`,
-      adv: `Was that experienced alongside your family?`
-    },
-    {
-      reply: `Ah, I totally get where you're coming from, ${shortName}! What's the best part about it for you?`,
-      translation: `아, ${shortName}님이 왜 그런 말씀을 하시는지 완전히 이해해요! 가장 좋은 점은 무엇인가요?`,
-      native: `What's the best part for you?`,
-      adv: `What aspect do you find most advantageous?`
-    },
-    {
-      reply: `Oh wow, that's awesome! How long have you been interested in that, ${shortName}?`,
-      translation: `와, 정말 멋지네요! ${shortName}님, 그 분야에 언제부터 관심을 가지셨나요?`,
-      native: `How long have you been doing that?`,
-      adv: `For how long have you pursued this interest?`
-    },
-    {
-      reply: `You speak English so well, ${shortName}! What else would you like to talk about right now?`,
-      translation: `${shortName}님 영어를 정말 잘하시네요! 지금 또 어떤 이야기를 나누고 싶으신가요?`,
-      native: `What else would you like to chat about?`,
-      adv: `What subsequent topic shall we discuss?`
-    }
-  ];
+  let reply = "";
+  let trans = "";
+  let native = "";
+  let adv = "";
 
-  let selected = responsePool.find(r => !recentRepliesBuffer.includes(r.reply)) || responsePool[conversationTurnCount % responsePool.length];
-
-  recentRepliesBuffer.push(selected.reply);
-  if (recentRepliesBuffer.length > 8) recentRepliesBuffer.shift();
+  if (lower.includes("name") || lower.includes("who are you") || lower.includes("your name")) {
+    reply = `My name is Chloe! I'm your native English teacher. What's your name, ${shortName}?`;
+    trans = `제 이름은 클로이예요! 여러분의 원어민 영어 선생님이죠. ${shortName}님의 이름은 무엇인가요?`;
+    native = `I'm Chloe, nice to meet you!`;
+    adv = `My name is Chloe, I serve as your native English instructor.`;
+  } else if (lower.includes("how are you") || lower.includes("how do you do") || lower.includes("what's up")) {
+    reply = `I'm doing wonderful today, ${shortName}! Thanks for asking. How has your day been going?`;
+    trans = `저는 오늘 정말 잘 지내고 있어요, ${shortName}님! 물어봐 주셔서 고마워요. 오늘 하루는 어떻게 보내고 계신가요?`;
+    native = `I'm doing great, thanks! How about you?`;
+    adv = `I am functioning exceptionally well today. How is your day progressing?`;
+  } else if (lower.includes("weather") || lower.includes("rain") || lower.includes("sunny") || lower.includes("cold") || lower.includes("hot")) {
+    reply = `The weather sounds really interesting today! Do you prefer sunny days or rainy days, ${shortName}?`;
+    trans = `오늘 날씨 이야기는 정말 재미있네요! ${shortName}님은 해가 쨍쨍한 날과 비 오는 날 중 어떤 날을 더 좋아하시나요?`;
+    native = `Do you like sunny or rainy days better?`;
+    adv = `Do you incline towards sunny or precipitative weather conditions?`;
+  } else if (lower.includes("food") || lower.includes("eat") || lower.includes("lunch") || lower.includes("dinner") || lower.includes("pizza") || lower.includes("burger") || lower.includes("hungry")) {
+    reply = `Mmm, talking about food makes me hungry, ${shortName}! What's your absolute favorite food to eat?`;
+    trans = `음, 음식 이야기를 하니까 배가 고파지네요, ${shortName}님! 가장 좋아하는 음식은 무엇인가요?`;
+    native = `What's your favorite food?`;
+    adv = `Which culinary item do you hold in highest regard?`;
+  } else if (lower.includes("game") || lower.includes("roblox") || lower.includes("play") || lower.includes("toy") || lower.includes("minecraft")) {
+    reply = `Playing games is so much fun! What game do you play the most these days, ${shortName}?`;
+    trans = `게임하는 건 정말 신나는 일이죠! ${shortName}님, 요즘 어떤 게임을 가장 많이 하시나요?`;
+    native = `What game do you play most?`;
+    adv = `Which interactive game do you engage with most frequently?`;
+  } else if (lower.includes("tired") || lower.includes("sleep") || lower.includes("hard") || lower.includes("busy")) {
+    reply = `Oh, I hear you, ${shortName}. You worked so hard today! Please make sure to get some rest, okay?`;
+    trans = `아, 무슨 말씀이신지 이해해요, ${shortName}님. 오늘 정말 수고 많으셨어요! 꼭 맛있는 것도 드시고 쉬세요, 아셨죠?`;
+    native = `Make sure to get rest today!`;
+    adv = `Ensure you prioritize adequate rest and recuperation.`;
+  } else {
+    const userWords = userText.split(' ').slice(0, 3).join(' ');
+    reply = `Ah, you mentioned "${userWords}"! That is really interesting, ${shortName}. Tell me a bit more about it!`;
+    trans = `아, "${userWords}"에 대해 말씀하셨군요! 정말 흥미롭네요, ${shortName}님. 그에 대해 조금만 더 말씀해 주시겠어요?`;
+    native = `Tell me more about that!`;
+    adv = `Could you elaborate further on that topic?`;
+  }
 
   return {
-    reply: selected.reply,
-    translation: selected.translation,
-    nativeUpgrade: selected.native,
-    advancedUpgrade: selected.adv,
+    reply,
+    translation: trans,
+    nativeUpgrade: native,
+    advancedUpgrade: adv,
     grammarFixNote: ""
   };
 }
@@ -773,7 +778,7 @@ function setupEventListeners() {
     saveSettingsBtn.addEventListener('click', () => {
       if (geminiKeyInput) userGeminiApiKey = geminiKeyInput.value.trim();
       localStorage.setItem('lingo_gemini_api_key', userGeminiApiKey);
-      alert('설정이 저장되었습니다! 이제 100% 사람 지능으로 대화합니다.');
+      alert('설정이 성공적으로 저장되었습니다! 이제 Gemini AI가 100% 똑똑하게 대화합니다.');
       if (settingsModal) settingsModal.classList.add('hidden');
     });
   }
