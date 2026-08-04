@@ -336,38 +336,47 @@ function toggleTranslation(id) {
 function splitTextIntoBilingualChunks(text) {
   if (!text) return [];
 
-  // 1. 이모지, 마크다운, 괄호 등 불필요한 서식 제거
+  // 1. 이모지, 서식 기호 제거 (문장부호 , . ! ? 은 호흡 마디 계산용으로 보존)
   let clean = text.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{20E3}]/gu, '');
   clean = clean.replace(/\[.*?\]/g, '').replace(/[*_#`~]/g, '').trim();
 
-  // 2. 특수기호나 문장부호 이름을 읽지 않도록 미리 다듬기
-  // 겹마침표, 겹물음표 정리
-  clean = clean.replace(/\?/g, '. ').replace(/!/g, '. ').replace(/~/g, ' ');
-
-  // 3. 한국어(한글 단어어구)와 영어(영어 단어어구)를 스마트하게 단어 단위로 토큰화
-  // 한글이 포함된 마디와 영문이 포함된 마디를 순서대로 추출
-  const tokens = clean.split(/(\s+)/);
+  // 2. 구두점(, . ! ?)을 기준으로 자연스러운 숨쉬기 구간으로 분리
+  const rawSegments = clean.split(/(?<=[,.!?])\s+/);
   const chunks = [];
-  let currentChunk = { text: '', lang: null };
 
-  tokens.forEach(token => {
-    if (!token) return;
-    const isKorean = /[\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF]/.test(token);
-    const lang = isKorean ? 'ko-KR' : 'en-US';
+  rawSegments.forEach(segment => {
+    if (!segment.trim()) return;
+    const hasComma = segment.endsWith(',');
+    const hasQuestion = segment.endsWith('?');
+    const hasExclamation = segment.endsWith('!');
 
-    if (currentChunk.lang === lang) {
-      currentChunk.text += token;
-    } else {
-      if (currentChunk.text.trim().length > 0) {
-        chunks.push({ text: currentChunk.text.trim(), lang: currentChunk.lang });
+    // 단어별 언어 판별
+    const tokens = segment.split(/(\s+)/);
+    let currentChunk = { text: '', lang: null, pause: 280 };
+
+    tokens.forEach(token => {
+      if (!token) return;
+      const isKorean = /[\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF]/.test(token);
+      const lang = isKorean ? 'ko-KR' : 'en-US';
+
+      if (currentChunk.lang === lang) {
+        currentChunk.text += token;
+      } else {
+        if (currentChunk.text.trim().length > 0) {
+          chunks.push(currentChunk);
+        }
+        currentChunk = { text: token, lang: lang, pause: 200 };
       }
-      currentChunk = { text: token, lang: lang };
+    });
+
+    if (currentChunk.text.trim().length > 0) {
+      // 쉼표는 300ms 일시정지, 마침표/물음표는 420ms 우아한 정지
+      currentChunk.pause = hasComma ? 320 : (hasQuestion || hasExclamation ? 420 : 350);
+      currentChunk.isQuestion = hasQuestion;
+      currentChunk.isExclamation = hasExclamation;
+      chunks.push(currentChunk);
     }
   });
-
-  if (currentChunk.text.trim().length > 0) {
-    chunks.push({ text: currentChunk.text.trim(), lang: currentChunk.lang });
-  }
 
   return chunks;
 }
@@ -384,15 +393,13 @@ function speakText(text) {
   
   window.speechSynthesis.cancel();
 
-  const isQuestion = text.includes('?');
-  const isExclamation = text.includes('!');
   const chunks = splitTextIntoBilingualChunks(text);
   if (chunks.length === 0) return;
 
   if (aiHumanStage) aiHumanStage.classList.add('speaking');
   startTalkingAvatarLoop();
 
-  if (lingoStatusTag) lingoStatusTag.innerText = "🗣️ Chloe 선생님이 리얼 인토네이션으로 대화하는 중...";
+  if (lingoStatusTag) lingoStatusTag.innerText = "🗣️ Chloe 선생님이 품격 있고 부드러운 목소리로 대화하는 중...";
 
   let currentIdx = 0;
 
@@ -416,7 +423,7 @@ function speakText(text) {
     const chunk = chunks[currentIdx];
     currentIdx++;
 
-    // 발음 시 '물음표', '점' 등을 직접 발음하지 않도록 문장부호 제거
+    // 발음 시 문자 부호 명칭("물음표" 등)을 읽지 않도록 기호 제거 후 순수 텍스트 추출
     let speakable = chunk.text.replace(/[^a-zA-Z0-9\s\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF']/g, ' ').trim();
     if (!speakable) {
       playNextChunk();
@@ -428,27 +435,28 @@ function speakText(text) {
     if (chunk.lang === 'ko-KR') {
       utterance.lang = 'ko-KR';
       if (naturalKrVoice) utterance.voice = naturalKrVoice;
-      utterance.rate = 1.02;
-      utterance.pitch = 1.04;
+      utterance.rate = 0.92; // 따스하고 우아한 속도
+      utterance.pitch = 1.02;
     } else {
       utterance.lang = 'en-US';
       if (naturalEnVoice) utterance.voice = naturalEnVoice;
       
-      // 🎭 생생한 억양(Intonation) 연출: 감탄문, 질문문, 첫마디 위치에 따른 변조
-      if (isExclamation && currentIdx === 1) {
-        utterance.rate = 0.95;
-        utterance.pitch = 1.22; // 신난 톤
-      } else if (isQuestion && currentIdx === chunks.length) {
-        utterance.rate = 0.88;
-        utterance.pitch = 1.18; // 올려 묻는 억양
+      // 🎭 품격 있는 억양(Intonation) 및 여유로운 템포 조절
+      if (chunk.isExclamation) {
+        utterance.rate = 0.86;
+        utterance.pitch = 1.15; // 따스하게 감탄하는 톤
+      } else if (chunk.isQuestion) {
+        utterance.rate = 0.82;
+        utterance.pitch = 1.12; // 끝을 정중하고 여유롭게 올리는 올려묻기
       } else {
-        utterance.rate = 0.90;
-        utterance.pitch = 1.05; // 자연스러운 호흡
+        utterance.rate = 0.83;  // 편안하고 지적인 품격 있는 원어민 속도 (0.90 -> 0.83)
+        utterance.pitch = 1.03; // 편안한 평서문 호흡
       }
     }
 
     utterance.onend = () => {
-      setTimeout(playNextChunk, 90);
+      // 쉼표, 마침표마다 사람처럼 0.3~0.4초간 자연스러운 숨쉬기 일시정지(Pause) 적용
+      setTimeout(playNextChunk, chunk.pause || 300);
     };
 
     utterance.onerror = (e) => {
