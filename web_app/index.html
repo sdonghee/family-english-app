@@ -3,76 +3,72 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>🎮 6인 가족 AI 사람 영어 선생님 - Lingo Live Pro</title>
-  <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#6c5ce7">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="apple-touch-icon" href="https://api.iconify.design/noto:robot.svg">
+  <title>Max AI Style - Lingo AI Video PT</title>
   <link rel="stylesheet" href="style.css">
-  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
 </head>
 <body>
-  <div id="app" class="app-container">
-    <!-- Header -->
+  <div class="app-container">
+    <!-- 상단 헤더 -->
     <header class="app-header">
       <div class="header-content">
-        <h1 class="logo">👩‍🏫 <span>Lingo</span> AI Pro Master</h1>
+        <h1 class="logo"><span>max</span> ai PT</h1>
         <div class="header-actions">
-          <button id="deck-btn" class="icon-btn highlight-gold" title="자동 복습 단어장">🎴 단어장</button>
-          <button id="report-btn" class="icon-btn highlight" title="학습 진행 리포트">📊 리포트</button>
-          <button id="settings-btn" class="icon-btn" title="클라우드 & API 설정">⚙️ 설정</button>
-          <button id="reset-btn" class="reset-btn" title="데이터 새로고침">🔄</button>
+          <button id="roleplay-btn" class="icon-btn highlight roleplay-tag">🎭 롤플레이</button>
+          <button id="report-btn" class="icon-btn highlight-gold">📊 리포트</button>
+          <button id="deck-btn" class="icon-btn">🎴 단어장</button>
+          <button id="settings-btn" class="icon-btn">⚙️</button>
+          <button id="reset-btn" class="reset-btn">초기화</button>
         </div>
       </div>
     </header>
 
-    <!-- Main Content Container -->
+    <!-- 메인 컨텐츠 영역 -->
     <main class="main-content">
-      <!-- 1. Profile Selection & Family Leaderboard Screen -->
+      <!-- 1. 프로필 선택 화면 -->
       <section id="profile-section" class="screen active">
         <div class="banner-card">
           <div class="banner-text">
-            <h2>👋 Premium Free AI 영어 Master</h2>
-            <p>유료 앱(Speak, Max AI) 이상을 넘어선 3단계 문장 엘리베이터, 롤플레이, 자동 복습 단어장을 제공합니다.</p>
+            <h2>AI 화상영어 1:1 PT</h2>
+            <p>실제 원어민 튜터 Chloe와의 생생한 1:1 리얼 타임 비디오 통화 대화!</p>
           </div>
-          <div class="banner-icon">👑</div>
+          <div class="banner-icon">📹</div>
         </div>
 
-        <!-- 6인 가족 랭킹 리더보드 & 불꽃 챌린지 -->
+        <!-- 6인 가족 실시간 리더보드 -->
         <div class="leaderboard-card">
           <div class="leaderboard-header">
-            <h3>🔥 6인 가족 불꽃 챌린지 & 랭킹</h3>
-            <span class="streak-badge" id="family-total-streak">🔥 가족 연승 3일차</span>
+            <h3>🔥 6인 가족 불꽃 랭킹</h3>
+            <span class="streak-badge">실시간 챌린지</span>
           </div>
           <div id="leaderboard-list" class="leaderboard-list">
-            <!-- Dynamic leaderboard rows -->
+            <!-- JS로 동적 생성 -->
           </div>
         </div>
 
-        <h3 class="section-title">👨‍👩‍👧‍👦 대화할 사람 선택 (6명)</h3>
-        <div id="profile-grid" class="profile-grid">
-          <!-- Dynamically inserted 6 profile cards (하율, 예율, 성율, 지율, 아빠, 엄마) -->
+        <h3 class="section-title">누가 대화를 시작할까요?</h3>
+        <div class="profile-grid" id="profile-grid">
+          <!-- JS로 동적 생성 -->
         </div>
       </section>
 
-      <!-- 2. Interactive AI Human Teacher Screen -->
+      <!-- 2. Max AI 스타일 화상 통화 대화 화면 -->
       <section id="chat-section" class="screen">
-        <!-- Top Bar inside Chat -->
         <div class="chat-top-bar">
-          <button id="back-to-profiles-btn" class="icon-btn">◀ 프로필</button>
-          <button id="roleplay-btn" class="icon-btn roleplay-tag">🎭 실전 롤플레이</button>
-          <div id="active-profile-header" class="active-profile-header">
-            <!-- Active profile snippet -->
+          <button id="back-to-profiles-btn" class="icon-btn">◀ 프로필 전환</button>
+          <div class="active-profile-header" id="active-profile-header">
+            <!-- JS로 활성 프로필 표시 -->
           </div>
         </div>
 
-        <!-- Level & XP Progress Card -->
-        <div id="xp-card" class="xp-card">
+        <!-- 사용자의 XP 및 레벨 바 -->
+        <div class="xp-card">
           <div class="xp-info-row">
-            <div class="level-badge" id="chat-level-badge">LV. 1</div>
-            <div class="user-name" id="chat-user-name">사용자</div>
-            <div class="xp-total" id="chat-xp-total">0 XP ⚡</div>
+            <div>
+              <span id="chat-level-badge" class="level-badge">LV. 1</span>
+              <span id="chat-user-name" class="user-name">사용자</span>
+            </div>
+            <div id="chat-xp-total" class="xp-total">0 XP ⚡</div>
           </div>
           <div class="progress-bar-track">
             <div id="progress-bar-fill" class="progress-bar-fill"></div>
@@ -83,137 +79,118 @@
           </div>
         </div>
 
-        <!-- REALISTIC AI HUMAN TEACHER VIDEO STAGE -->
-        <div class="ai-human-stage" id="ai-human-stage" title="선생님 얼굴이나 아래 마이크 버튼을 눌러 말하세요!">
-          <div id="ai-teacher-avatar" class="ai-teacher-avatar idle">
-            <div class="teacher-face">
-              <div class="teacher-eyes">
-                <div class="eye left"></div>
-                <div class="eye right"></div>
-              </div>
-              <div id="teacher-mouth" class="teacher-mouth idle"></div>
+        <!-- Max AI 화상 통화 튜터 비디오 스테이지 -->
+        <div class="max-video-stage" id="ai-human-stage">
+          <div class="max-ai-badge">max ai <span>LIVE</span></div>
+
+          <div class="video-avatar-wrapper">
+            <img src="assets/chloe_teacher_avatar.jpg" alt="Chloe AI Teacher" class="max-teacher-img" id="max-teacher-img">
+            <div class="video-play-overlay-btn" id="video-play-overlay-btn">
+              <div class="play-triangle"></div>
             </div>
-            <div class="video-badge">🔴 Live Prof. Chloe</div>
+            <div class="video-live-pulse" id="video-live-pulse"></div>
           </div>
-          <div id="lingo-status-tag" class="lingo-status-tag">👩‍🏫 3단계 문장 교정 및 원어민 발음 피드백 가동 중</div>
+
+          <!-- 자막 & 수치 스피치 오버레이 (Max AI 핵심 스타일) -->
+          <div class="speech-overlay-box" id="speech-overlay-box">
+            <div class="speech-en-text" id="speech-en-text">"How are you doing today?"</div>
+            <div class="speech-kr-sub" id="speech-kr-sub">오늘 하루 어떠셨나요?</div>
+          </div>
+
+          <div class="lingo-status-tag" id="lingo-status-tag">
+            👩‍🏫 마이크를 누르거나 화면을 터치해 실제 화상 통화처럼 대화하세요!
+          </div>
         </div>
 
-        <!-- Messages Area -->
-        <div id="chat-messages" class="chat-messages">
-          <!-- Dynamic chat bubbles -->
+        <!-- 대화 내역 (스크롤) -->
+        <div class="chat-messages" id="chat-messages">
+          <!-- 대화 메시지가 여기에 쌓임 -->
         </div>
 
-        <!-- Quick Reply Chips for Kids -->
-        <div id="quick-chips-container" class="quick-chips-container">
-          <!-- Dynamic chips -->
+        <!-- 추천 칩 -->
+        <div class="quick-chips-container" id="quick-chips-container">
+          <!-- JS로 추천 대화 버튼 생성 -->
         </div>
 
-        <!-- GIANT ACCESSIBLE VOICE MIC CONTROL PANEL -->
-        <div class="voice-control-panel">
+        <!-- Max AI 비디오 컨트롤 패널 -->
+        <div class="max-video-controls">
+          <button class="video-control-sub-btn" id="hint-toggle-btn">🌐 HINT</button>
+          
           <button id="giant-mic-btn" class="giant-mic-btn">
             <div class="mic-inner-circle">
-              <span id="mic-icon" class="mic-emoji">🎙️</span>
+              <span class="mic-emoji" id="mic-icon">🎙️</span>
             </div>
-            <span id="mic-label" class="mic-text">눌러서 말하기</span>
+            <span class="mic-text" id="mic-label">화상 대화 시작하기</span>
           </button>
         </div>
 
-        <!-- Text Input Bar -->
+        <!-- 텍스트 입력창 -->
         <div class="chat-input-bar">
-          <input type="text" id="chat-input" placeholder="키보드로 입력하거나 위 마이크를 누르세요..." autocomplete="off" />
-          <button id="send-btn" class="send-btn">
-            <span>전송</span> 🚀
-          </button>
+          <input type="text" id="chat-input" placeholder="영어로 말씀을 입력하거나 마이크를 누르세요...">
+          <button id="send-btn" class="send-btn">전송</button>
         </div>
       </section>
     </main>
 
-    <!-- 🎭 20+ Real-World Roleplay Selector Modal -->
+    <!-- 모달 레이어들 -->
     <div id="roleplay-modal" class="modal-overlay hidden">
-      <div class="modal-card text-left">
-        <h3>🎭 20+ 실전 라이브 롤플레이 퀘스트</h3>
-        <p class="sub-desc">원하는 상황을 선택하면 클로이 교수님이 역할극 상대방으로 변신합니다!</p>
-        
-        <div class="roleplay-grid" id="roleplay-grid">
-          <!-- Dynamic roleplay scenario chips -->
-        </div>
-        
-        <div class="modal-btn-row">
-          <button id="close-roleplay-btn" class="modal-btn secondary">취소 및 자유 대화</button>
-        </div>
+      <div class="modal-card">
+        <h3>🎭 20+ 실전 롤플레이</h3>
+        <p class="sub-desc">원하는 상황을 선택하여 실전 화상 대화를 연습해 보세요!</p>
+        <div id="roleplay-grid" class="roleplay-grid"></div>
+        <button id="close-roleplay-btn" class="modal-btn secondary">닫기</button>
       </div>
     </div>
 
-    <!-- 🎴 Spaced Repetition Vocabulary Deck Modal -->
     <div id="deck-modal" class="modal-overlay hidden">
-      <div class="modal-card text-left">
-        <h3>🎴 에빙하우스 자동 복습 단어장</h3>
-        <p class="sub-desc">대화하며 교정받은 원어민 표현들이 자동으로 수집된 단어장입니다.</p>
-        
-        <div id="deck-card-container" class="deck-card-container">
-          <!-- Dynamic flashcard list -->
-        </div>
-
-        <div class="modal-btn-row">
-          <button id="close-deck-btn" class="modal-btn">닫기 🚀</button>
-        </div>
+      <div class="modal-card">
+        <h3>🎴 원어민 단어장</h3>
+        <p class="sub-desc">대화 중 익힌 세련된 원어민 단어와 표현입니다.</p>
+        <div id="deck-card-container" class="deck-card-container"></div>
+        <button id="close-deck-btn" class="modal-btn secondary">닫기</button>
       </div>
     </div>
 
-    <!-- Follow-Up Learning Report Modal -->
     <div id="report-modal" class="modal-overlay hidden">
       <div class="modal-card text-left">
-        <h3>📊 학습 진행 리포트 & 대화 기억</h3>
-        <p class="sub-desc" id="report-profile-name">사용자님의 누적 학습 과정과 실력 향상도입니다.</p>
+        <h3 id="report-profile-name">📊 학습 리포트</h3>
+        <p id="report-level-info" class="sub-desc"></p>
         
         <div class="report-section">
-          <h4>📈 영어 성장 단계</h4>
-          <div id="report-level-info" class="report-box">Level 1 - 기초 어휘 형성 단계</div>
+          <h4>📌 대화 주제 이력</h4>
+          <div id="report-topics" class="report-box"></div>
         </div>
 
         <div class="report-section">
-          <h4>🧠 기억된 최근 대화 주제</h4>
-          <div id="report-topics" class="report-box">최근 대화 기록을 분석 중입니다...</div>
+          <h4>💡 마스터한 원어민 어휘</h4>
+          <div id="report-vocab" class="report-box"></div>
         </div>
 
         <div class="report-section">
-          <h4>📚 습득한 원어민 핵심 표현</h4>
-          <div id="report-vocab" class="report-box">익힌 단어가 여기에 쌓입니다.</div>
+          <h4>👩‍🏫 클로이 교수님의 교수학적 피드백</h4>
+          <div id="report-feedback" class="report-box feedback"></div>
         </div>
 
-        <div class="report-section">
-          <h4>🎓 클로이 교수님의 피드백</h4>
-          <div id="report-feedback" class="report-box feedback">대화를 이어나갈수록 더 정교한 맞춤 피드백이 제공됩니다.</div>
-        </div>
-        
-        <div class="modal-btn-row">
-          <button id="close-report-btn" class="modal-btn">확인 및 대화 계속하기 🚀</button>
-        </div>
+        <button id="close-report-btn" class="modal-btn secondary">닫기</button>
       </div>
     </div>
 
-    <!-- Level Up Modal Notification -->
     <div id="level-up-modal" class="modal-overlay hidden">
       <div class="modal-card">
-        <div class="modal-emoji">🎉</div>
-        <h3>LEVEL UP!</h3>
-        <p id="level-up-message">축하합니다!</p>
-        <button id="modal-close-btn" class="modal-btn">신나게 계속하기 🚀</button>
+        <h3>🎉 LEVEL UP!</h3>
+        <p id="level-up-message" class="sub-desc"></p>
+        <button id="modal-close-btn" class="modal-btn">확인</button>
       </div>
     </div>
 
-    <!-- Settings & API Modal -->
     <div id="settings-modal" class="modal-overlay hidden">
-      <div class="modal-card text-left">
-        <h3>⚙️ 클라우드 & AI 설정</h3>
-        <p class="sub-desc">Google Gemini 무료 API 키를 등록하면 내 컴퓨터 없이 24시간 실시간 AI 답변을 제공합니다.</p>
-        
-        <label class="input-label">🔑 Gemini API Key (무료)</label>
-        <input type="password" id="gemini-key-input" placeholder="AIzaSy... 키를 입력하세요" class="modal-input" />
-        
+      <div class="modal-card">
+        <h3>⚙️ 설정</h3>
+        <label class="input-label" for="gemini-key-input">Gemini API Key (선택사항)</label>
+        <input type="password" id="gemini-key-input" class="modal-input" placeholder="AI 키를 입력하세요">
         <div class="modal-btn-row">
-          <button id="save-settings-btn" class="modal-btn">설정 저장하기</button>
-          <button id="close-settings-btn" class="modal-btn secondary">닫기</button>
+          <button id="save-settings-btn" class="modal-btn">저장</button>
+          <button id="close-settings-btn" class="modal-btn secondary">취소</button>
         </div>
       </div>
     </div>

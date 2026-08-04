@@ -132,8 +132,11 @@ const nextLevelXpText = document.getElementById('next-level-xp-text');
 const badgeCountText = document.getElementById('badge-count-text');
 
 const aiHumanStage = document.getElementById('ai-human-stage');
-const teacherMouth = document.getElementById('teacher-mouth');
 const lingoStatusTag = document.getElementById('lingo-status-tag');
+const speechEnText = document.getElementById('speech-en-text');
+const speechKrSub = document.getElementById('speech-kr-sub');
+const videoPlayOverlayBtn = document.getElementById('video-play-overlay-btn');
+const hintToggleBtn = document.getElementById('hint-toggle-btn');
 
 const chatMessages = document.getElementById('chat-messages');
 const quickChipsContainer = document.getElementById('quick-chips-container');
@@ -207,7 +210,7 @@ function loadNaturalVoices() {
 }
 
 function loadStoredData() {
-  const savedProfiles = localStorage.getItem('lingo_profiles_v14');
+  const savedProfiles = localStorage.getItem('lingo_profiles_v15');
   if (savedProfiles) {
     profiles = JSON.parse(savedProfiles);
   } else {
@@ -215,13 +218,13 @@ function loadStoredData() {
     saveProfiles();
   }
 
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v14');
+  const savedHistories = localStorage.getItem('lingo_chat_histories_v15');
   if (savedHistories) chatHistories = JSON.parse(savedHistories);
 
-  const savedMemories = localStorage.getItem('lingo_profile_memories_v14');
+  const savedMemories = localStorage.getItem('lingo_profile_memories_v15');
   if (savedMemories) profileMemories = JSON.parse(savedMemories);
 
-  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v14');
+  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v15');
   if (savedFlashcards) userFlashcards = JSON.parse(savedFlashcards);
 
   userGeminiApiKey = localStorage.getItem('lingo_gemini_api_key') || '';
@@ -229,19 +232,19 @@ function loadStoredData() {
 }
 
 function saveProfiles() {
-  localStorage.setItem('lingo_profiles_v14', JSON.stringify(profiles));
+  localStorage.setItem('lingo_profiles_v15', JSON.stringify(profiles));
 }
 
 function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v14', JSON.stringify(chatHistories));
+  localStorage.setItem('lingo_chat_histories_v15', JSON.stringify(chatHistories));
 }
 
 function saveMemories() {
-  localStorage.setItem('lingo_profile_memories_v14', JSON.stringify(profileMemories));
+  localStorage.setItem('lingo_profile_memories_v15', JSON.stringify(profileMemories));
 }
 
 function saveFlashcards() {
-  localStorage.setItem('lingo_user_flashcards_v14', JSON.stringify(userFlashcards));
+  localStorage.setItem('lingo_user_flashcards_v15', JSON.stringify(userFlashcards));
 }
 
 function renderLeaderboard() {
@@ -314,7 +317,9 @@ function selectProfile(id) {
   profileSection.classList.remove('active');
   chatSection.classList.add('active');
 
-  speakText(chatHistories[id][0].content);
+  const welcomeMsg = chatHistories[id][0];
+  updateVideoOverlaySubtitles(welcomeMsg.content, welcomeMsg.translation);
+  speakText(welcomeMsg.content);
 }
 
 function getWelcomeMessage(profile) {
@@ -354,6 +359,11 @@ function updateProfileUIHeader() {
   progressBarFill.style.width = `${progressRatio}%`;
   nextLevelXpText.innerText = `다음 레벨까지: ${xpNeeded - currentXpInLevel} XP`;
   badgeCountText.innerText = `획득 배지 ${activeProfile.badges.length}개 🏆`;
+}
+
+function updateVideoOverlaySubtitles(enText, krText) {
+  if (speechEnText) speechEnText.innerText = `"${enText}"`;
+  if (speechKrSub) speechKrSub.innerText = krText || "";
 }
 
 function renderMessages() {
@@ -440,13 +450,18 @@ function speakText(text) {
 
     const chunks = cleanSpeech.match(/[^.!?]+[.!?]+/g) || [cleanSpeech];
 
-    updateTeacherFaceState('speaking', '👩‍🏫 원어민 음성으로 자연스럽게 이야기하는 중...');
+    aiHumanStage.classList.add('speaking');
+    if (videoPlayOverlayBtn) videoPlayOverlayBtn.style.opacity = '0';
+
+    updateTeacherFaceState('speaking', '👩‍🏫 Chloe 선생님이 실제 화상 음성으로 대화 중...');
 
     let currentIdx = 0;
 
     const playNextChunk = () => {
       if (currentIdx >= chunks.length) {
-        updateTeacherFaceState('idle', '👩‍🏫 아래 마이크를 누르거나 선생님을 터치해 여유있게 말씀하세요!');
+        aiHumanStage.classList.remove('speaking');
+        if (videoPlayOverlayBtn) videoPlayOverlayBtn.style.opacity = '1';
+        updateTeacherFaceState('idle', '👩‍🏫 마이크를 누르거나 화면을 터치해 실제 화상 통화처럼 대화하세요!');
         return;
       }
 
@@ -503,8 +518,8 @@ function setupSpeechRecognition() {
     accumulatedTranscript = '';
     giantMicBtn.classList.add('listening');
     micIcon.innerText = "🔴";
-    micLabel.innerText = "음성 듣는 중...";
-    lingoStatusTag.innerText = "🎤 편하게 말씀을 이어나가세요. 클로이 교수님이 여유있게 들으며 기다리고 있어요...";
+    micLabel.innerText = "화상 통화 중...";
+    lingoStatusTag.innerText = "🎤 편하게 말씀을 이어나가세요. Chloe 선생님이 경청하고 있어요...";
   };
 
   recognition.onresult = (event) => {
@@ -574,8 +589,8 @@ function stopListening() {
   if (speechPauseTimer) clearTimeout(speechPauseTimer);
   giantMicBtn.classList.remove('listening');
   micIcon.innerText = "🎙️";
-  micLabel.innerText = "눌러서 말하기";
-  lingoStatusTag.innerText = "👩‍🏫 아래 마이크를 누르거나 선생님을 터치해 여유있게 말씀하세요!";
+  micLabel.innerText = "화상 대화 시작하기";
+  lingoStatusTag.innerText = "👩‍🏫 마이크를 누르거나 화면을 터치해 실제 화상 통화처럼 대화하세요!";
 }
 
 function renderQuickChips() {
@@ -621,7 +636,7 @@ async function handleSendMessage() {
   saveHistories();
   renderMessages();
 
-  updateTeacherFaceState('thinking', '🤔 실시간 대화 반응을 생각하고 있어요...');
+  updateTeacherFaceState('thinking', '🤔 Chloe 선생님이 대화를 경청하며 답을 생각 중...');
 
   const xpEarned = text.split(' ').length >= 4 ? 30 : 20;
   const didLevelUp = addXpToActiveProfile(xpEarned);
@@ -658,6 +673,7 @@ function handleAiResponseReceived(aiResponse, didLevelUp, userText) {
   saveHistories();
   renderMessages();
 
+  updateVideoOverlaySubtitles(aiResponse.reply, aiResponse.translation);
   updateProfileMemory(activeProfile.id, userText, aiResponse.reply, aiResponse.grammarHint);
 
   if (aiResponse.grammarHint) {
@@ -705,18 +721,17 @@ async function fetchRealGeminiResponse(profile, userText) {
     .map(m => `${m.sender === 'user' ? 'Student' : 'Chloe'}: ${m.content}`)
     .join("\n");
 
-  const systemPrompt = `You are 'Chloe', an incredibly warm, intelligent, bilingual native conversation partner chatting with ${profile.name} (Age: ${profile.age}).
+  const systemPrompt = `You are 'Chloe', a real native speaker chatting on a 1:1 live video call with ${profile.name} (Age: ${profile.age}).
 CRITICAL DIALOGUE DIRECTIVES:
-1. NEVER quote raw user strings like "You mentioned X". Respond naturally to the meaning of what they said!
+1. NEVER quote raw user strings. Respond naturally to their meaning!
 2. Speak in 1-2 SHORT, warm spoken conversational sentences.
-3. If user spoke in Korean or hesitated, give a warm supportive response in simple English with a friendly question.
-4. Perform 3-Stage Sentence Upgrade on user's input:
+3. Perform 3-Stage Sentence Upgrade on user's input:
    - nativeUpgrade: Everyday natural native phrasing.
    - advancedUpgrade: C1/C2 vocabulary.
-5. reply: Your natural spoken response.
-6. translation: Korean translation of reply.
-7. grammarHint: Useful native idiom.
-8. phonemeTip: Stress & intonation tip.
+4. reply: Spoken video response.
+5. translation: Korean translation.
+6. grammarHint: Native idiom.
+7. phonemeTip: Stress & intonation tip.
 
 Recent History:
 ${historySnippet}
@@ -747,7 +762,6 @@ Respond strictly in JSON format: {"reply": "...", "translation": "...", "grammar
 function generateNaturalHumanResponse(profile, userText) {
   conversationTurnCount++;
   const shortName = profile.name.split(' ')[1] || profile.name;
-  const lower = userText.toLowerCase();
 
   const conversationResponses = [
     {
@@ -824,6 +838,8 @@ function startRoleplayScenario(scenario) {
   chatHistories[activeProfile.id].push(startMsg);
   saveHistories();
   renderMessages();
+
+  updateVideoOverlaySubtitles(startMsg.content, startMsg.translation);
   speakText(startMsg.content);
 }
 
@@ -870,7 +886,6 @@ function showReportModal() {
 }
 
 function updateTeacherFaceState(state, statusText) {
-  teacherMouth.className = `teacher-mouth ${state}`;
   lingoStatusTag.innerText = statusText;
 }
 
@@ -913,6 +928,14 @@ function setupEventListeners() {
   reportBtn.addEventListener('click', showReportModal);
   deckBtn.addEventListener('click', showDeckModal);
 
+  if (hintToggleBtn) {
+    hintToggleBtn.addEventListener('click', () => {
+      if (speechKrSub) {
+        speechKrSub.style.display = speechKrSub.style.display === 'none' ? 'block' : 'none';
+      }
+    });
+  }
+
   roleplayBtn.addEventListener('click', () => {
     roleplayModal.classList.remove('hidden');
   });
@@ -954,10 +977,10 @@ function setupEventListeners() {
 
   resetBtn.addEventListener('click', () => {
     if (confirm('프로필과 대화 기록, 단어장을 모두 초기화하시겠습니까?')) {
-      localStorage.removeItem('lingo_profiles_v14');
-      localStorage.removeItem('lingo_chat_histories_v14');
-      localStorage.removeItem('lingo_profile_memories_v14');
-      localStorage.removeItem('lingo_user_flashcards_v14');
+      localStorage.removeItem('lingo_profiles_v15');
+      localStorage.removeItem('lingo_chat_histories_v15');
+      localStorage.removeItem('lingo_profile_memories_v15');
+      localStorage.removeItem('lingo_user_flashcards_v15');
       profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
       chatHistories = {};
       profileMemories = {};
