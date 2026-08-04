@@ -290,12 +290,21 @@ function renderMessages() {
       `;
     }
 
+    if (msg.pronunciationTip) {
+      contentHtml += `
+        <div class="grammar-tip" style="background:#1e1b4b; border-color:#4338ca; color:#a5b4fc; margin-top:6px;">
+          <span>🎙️ 억양 & 발음 팁:</span> ${msg.pronunciationTip}
+        </div>
+      `;
+    }
+
     if (msg.nativeUpgrade || msg.advancedUpgrade) {
       contentHtml += `
         <div class="upgrade-elevator">
-          <div class="upgrade-title">💎 3단계 문장 엘리베이터</div>
+          <div class="upgrade-title">💎 3단계 문장 엘리베이터 & 실전 따라하기</div>
           <div class="upgrade-step native">🥈 원어민 표현: "${msg.nativeUpgrade || ''}"</div>
           <div class="upgrade-step advanced">🥇 C1/C2 고급 표현: "${msg.advancedUpgrade || ''}"</div>
+          ${msg.nativeUpgrade ? `<button class="practice-speak-btn" onclick="fillPracticeSentence('${msg.nativeUpgrade.replace(/'/g, "\\'")}')">📢 원어민 표현 따라 연습하기</button>` : ''}
         </div>
       `;
     }
@@ -363,19 +372,27 @@ function splitTextIntoBilingualChunks(text) {
   return chunks;
 }
 
+function fillPracticeSentence(text) {
+  if (!chatInput) return;
+  chatInput.value = text;
+  if (lingoStatusTag) lingoStatusTag.innerText = "📢 [따라하기 연습] 마이크 버튼 🎙️을 누르고 문장을 크게 읽어보세요!";
+  chatInput.focus();
+}
+
 function speakText(text) {
   if (!('speechSynthesis' in window)) return;
   
   window.speechSynthesis.cancel();
 
   const isQuestion = text.includes('?');
+  const isExclamation = text.includes('!');
   const chunks = splitTextIntoBilingualChunks(text);
   if (chunks.length === 0) return;
 
   if (aiHumanStage) aiHumanStage.classList.add('speaking');
   startTalkingAvatarLoop();
 
-  if (lingoStatusTag) lingoStatusTag.innerText = "🗣️ Chloe 선생님이 자연스럽게 설명하는 중...";
+  if (lingoStatusTag) lingoStatusTag.innerText = "🗣️ Chloe 선생님이 리얼 인토네이션으로 대화하는 중...";
 
   let currentIdx = 0;
 
@@ -411,17 +428,27 @@ function speakText(text) {
     if (chunk.lang === 'ko-KR') {
       utterance.lang = 'ko-KR';
       if (naturalKrVoice) utterance.voice = naturalKrVoice;
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
+      utterance.rate = 1.02;
+      utterance.pitch = 1.04;
     } else {
       utterance.lang = 'en-US';
       if (naturalEnVoice) utterance.voice = naturalEnVoice;
-      utterance.rate = 0.90;
-      utterance.pitch = (isQuestion && currentIdx === chunks.length) ? 1.15 : 1.02;
+      
+      // 🎭 생생한 억양(Intonation) 연출: 감탄문, 질문문, 첫마디 위치에 따른 변조
+      if (isExclamation && currentIdx === 1) {
+        utterance.rate = 0.95;
+        utterance.pitch = 1.22; // 신난 톤
+      } else if (isQuestion && currentIdx === chunks.length) {
+        utterance.rate = 0.88;
+        utterance.pitch = 1.18; // 올려 묻는 억양
+      } else {
+        utterance.rate = 0.90;
+        utterance.pitch = 1.05; // 자연스러운 호흡
+      }
     }
 
     utterance.onend = () => {
-      setTimeout(playNextChunk, 80);
+      setTimeout(playNextChunk, 90);
     };
 
     utterance.onerror = (e) => {
@@ -621,6 +648,8 @@ function handleAiResponseReceived(aiResponse, userText) {
     translation: aiResponse.translation,
     grammarHint: aiResponse.grammarHint,
     phonemeTip: aiResponse.phonemeTip,
+    pronunciationTip: aiResponse.pronunciationTip,
+    practiceSentence: aiResponse.practiceSentence,
     nativeUpgrade: aiResponse.nativeUpgrade,
     advancedUpgrade: aiResponse.advancedUpgrade,
     grammarFixNote: aiResponse.grammarFixNote || grammarFixNote,
