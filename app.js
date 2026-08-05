@@ -31,6 +31,8 @@ let accumulatedTranscript = '';
 let conversationTurnCount = 0;
 let isSpeakingAnim = false;
 let recentRepliesBuffer = [];
+let lastAiReplyText = '';  // 🔇 에코 감지용: AI가 마지막으로 한 말 저장
+let isTtsSpeaking = false;  // 🔇 TTS 발화 중 여부 (speechSynthesis.speaking보다 더 정확)
 
 let userErrorPatterns = { tense: 0, article: 0, preposition: 0, wordOrder: 0, agreement: 0, other: 0 };
 let uniqueWordsUsed = new Set();
@@ -564,13 +566,15 @@ function fillPracticeSentence(text) {
 function speakText(text) {
   if (!('speechSynthesis' in window)) return;
   
-  // 🔇 중요: 선생님이 말할 때는 마이크를 즉시 완전히 꺼서 스피커 소리가 마이크로 재입력되는 피드백 에코 루프 차단!
+  // 🔇 핵심: 선생님이 말할 때 마이크를 즉시 완전히 끄고, TTS 발화 플래그 ON
   stopListening();
+  isTtsSpeaking = true;
+  lastAiReplyText = text.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();  // 에코 감지용 저장
   window.speechSynthesis.cancel();
   if (!naturalEnVoice) loadNaturalVoices();
 
   const chunks = splitTextIntoBilingualChunks(text);
-  if (chunks.length === 0) return;
+  if (chunks.length === 0) { isTtsSpeaking = false; return; }
 
   if (aiHumanStage) aiHumanStage.classList.add('speaking');
   startTalkingAvatarLoop();
@@ -592,14 +596,15 @@ function speakText(text) {
       clearInterval(resumeTimer);
       if (aiHumanStage) aiHumanStage.classList.remove('speaking');
       stopTalkingAvatarLoop();
-      if (lingoStatusTag) lingoStatusTag.innerText = "🎤 경청 중... 편하게 말씀해 주세요!";
       
-      // 🎧 선생님 발화가 완전히 끝난 뒤 스피커 여운이 사라지는 1.2초 후 마이크를 안심하게 재활성화
+      // 🛑 핵심 수정: TTS 끝난 후 마이크를 자동으로 켜지 않음!
+      // 사용자가 마이크 버튼을 직접 눌러야만 대화 시작.
+      // 이렇게 하면 스피커 소리가 마이크에 재입력되는 피드백 루프 100% 차단.
       setTimeout(() => {
-        if (!isListening && !window.speechSynthesis.speaking) {
-          startListening();
-        }
-      }, 1200);
+        isTtsSpeaking = false;
+      }, 2000);  // 2초 후에야 TTS 발화 플래그 해제 (스피커 잔여음 완전 소멸 대기)
+      
+      if (lingoStatusTag) lingoStatusTag.innerText = "🎙️ 마이크 버튼을 눌러 대화를 이어가세요!";
       return;
     }
 
@@ -694,20 +699,41 @@ function setupSpeechRecognition() {
     if (chatInput) chatInput.value = displayText;
 
     // 🛑 중요: 완벽히 확정된 문장(hasNewFinal)이 들어왔을 때만 전송 타이머 작동!
-    // 사용자가 말하는 중간의 불확실한 임시 텍스트(interim) 때문에 앞 단어가 싹 잘려서 들어가는 현상 완전 차단.
     if (hasNewFinal || accumulatedTranscript.trim().length > 0) {
       if (speechPauseTimer) clearTimeout(speechPauseTimer);
 
       speechPauseTimer = setTimeout(() => {
         const textToSend = accumulatedTranscript.trim() || (chatInput ? chatInput.value.trim() : '');
         
-        // 헛소리/잡음 1단어(예: "A", "The", "Um") 잘림 방지: 최소 3글자 이상 의미있는 완성문장일 때만 전송
-        if (textToSend.length >= 3 && !window.speechSynthesis.speaking) {
+        // 🔇 에코 감지: TTS가 아직 발화 중이거나 직후이면 무조건 무시
+        if (isTtsSpeaking || window.speechSynthesis.speaking) {
+          console.log("🔇 TTS still active, ignoring mic input:", textToSend);
+          return;
+        }
+        
+        // 🔇 에코 유사도 검사: 인식된 텍스트가 AI의 마지막 응답과 40% 이상 유사하면 에코로 판정
+        if (textToSend.length >= 3 && lastAiReplyText.length > 0) {
+          const cleanInput = textToSend.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+          const inputWords = cleanInput.split(/\s+/);
+          const aiWords = lastAiReplyText.split(/\s+/);
+          const matchCount = inputWords.filter(w => w.length > 2 && aiWords.includes(w)).length;
+          const similarity = inputWords.length > 0 ? matchCount / inputWords.length : 0;
+          
+          if (similarity > 0.4) {
+            console.log(`🔇 Echo detected (${(similarity*100).toFixed(0)}% match). Discarding:`, textToSend);
+            accumulatedTranscript = '';
+            if (chatInput) chatInput.value = '';
+            return;
+          }
+        }
+        
+        // 최소 3글자 이상 의미있는 완성문장일 때만 전송
+        if (textToSend.length >= 3) {
           console.log("🎤 Final sentence ready to send:", textToSend);
           stopListening();
           handleSendMessage();
         }
-      }, 1800);
+      }, 2000);
     }
   };
 
@@ -746,9 +772,13 @@ function toggleListening() {
 
 function startListening() {
   if (!recognition || isListening) return;
-  // 선생님이 아직 말하고 있을 때는 마이크가 절대로 켜지지 않도록 철저한 에코 방지!
+  // 🔇 3중 에코 방지: TTS 플래그, speechSynthesis.speaking, 둘 다 체크
+  if (isTtsSpeaking) {
+    console.log("🔇 TTS flag active. Blocking mic activation.");
+    return;
+  }
   if ('speechSynthesis' in window && window.speechSynthesis.speaking) {
-    console.log("Speech synthesis is currently active. Delaying mic activation.");
+    console.log("🔇 Speech synthesis is currently active. Blocking mic activation.");
     return;
   }
   try {
