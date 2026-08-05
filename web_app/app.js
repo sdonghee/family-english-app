@@ -879,19 +879,47 @@ function handleAiResponseReceived(aiResponse, userText) {
   speakText(aiResponse.reply);
 }
 
+function correctPhoneticMishearings(text) {
+  if (!text) return text;
+  let cleaned = text;
+  
+  // 한국인 영어 학습자의 흔한 발음 튀는 현상 단어 보정 맵
+  const phoneticMap = [
+    [/\bwant to skull\b/gi, "went to school"],
+    [/\bwant to store\b/gi, "went to store"],
+    [/\bplay game\b/gi, "playing games"],
+    [/\bgo market\b/gi, "go to market"],
+    [/\blisten music\b/gi, "listen to music"],
+    [/\bi am boring\b/gi, "I am bored"],
+    [/\bme like\b/gi, "I like"],
+    [/\bme go\b/gi, "I go"]
+  ];
+
+  phoneticMap.forEach(([regex, replacement]) => {
+    cleaned = cleaned.replace(regex, replacement);
+  });
+
+  return cleaned;
+}
+
 async function fetchRealGeminiResponse(profile, userText) {
   const { krName, enName } = getProfileNameInfo(profile);
-  // 대화 기록 생성
+  
+  // 발음 오인식 1차 자동 보정
+  const correctedUserText = correctPhoneticMishearings(userText);
+
+  // 최근 16턴의 대화 기록을 넉넉하게 전달하여 AI가 이전 대답/질문을 100% 기억
   const historySnippet = (chatHistories[profile.id] || [])
-    .slice(-8)
+    .slice(-16)
     .map(m => `${m.sender === 'user' ? enName : 'Chloe'}: ${m.content}`)
     .join("\n");
 
   const requestBody = {
     userName: `${enName} (${krName})`,
     userAge: profile.age,
-    userText: userText,
+    userText: correctedUserText,
     history: historySnippet,
+    flashcards: userFlashcards.slice(0, 10),
     apiKey: userGeminiApiKey || ''
   };
 
