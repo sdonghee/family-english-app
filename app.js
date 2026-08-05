@@ -681,6 +681,12 @@ function setupSpeechRecognition() {
   };
 
   recognition.onresult = (event) => {
+    // 🔇 핵심: TTS 발화 중이면 들어오는 모든 음성인식 결과를 완전히 무시!
+    if (isTtsSpeaking || window.speechSynthesis.speaking) {
+      console.log("🔇 TTS active — ignoring all recognition results");
+      return;
+    }
+
     let interim = '';
     let hasNewFinal = false;
 
@@ -743,6 +749,14 @@ function setupSpeechRecognition() {
   };
 
   recognition.onend = () => {
+    // 🔇 TTS 발화 중이면 절대로 자동 전송하지 않음!
+    if (isTtsSpeaking || window.speechSynthesis.speaking) {
+      console.log("🔇 TTS active at recognition.onend — discarding any accumulated text");
+      accumulatedTranscript = '';
+      if (chatInput) chatInput.value = '';
+      stopListening();
+      return;
+    }
     if (isListening && chatInput && chatInput.value.trim().length > 0) {
       handleSendMessage();
     }
@@ -756,17 +770,25 @@ function toggleListening() {
     return;
   }
 
+  // 🔇 선생님이 말하는 중에는 마이크 토글 자체를 차단!
+  if (isTtsSpeaking || window.speechSynthesis.speaking) {
+    if (lingoStatusTag) lingoStatusTag.innerText = "🔇 선생님이 말하는 중입니다. 말이 끝나면 마이크를 눌러주세요!";
+    return;
+  }
+
   if (isListening) {
-    if (speechPauseTimer) clearTimeout(speechPauseTimer);
-    recognition.stop();
-    stopListening();
+    stopListening();  // recognition.stop() 포함됨
     if (chatInput && chatInput.value.trim().length > 0) {
       handleSendMessage();
     }
   } else {
     if (chatInput) chatInput.value = '';
     accumulatedTranscript = '';
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (e) {
+      console.warn("Could not start recognition:", e);
+    }
   }
 }
 
@@ -793,10 +815,23 @@ function startListening() {
 function stopListening() {
   isListening = false;
   if (speechPauseTimer) clearTimeout(speechPauseTimer);
+  accumulatedTranscript = '';  // 🔇 잔여 텍스트 완전 제거
+  
+  // 🔇 핵심 수정: 음성인식 엔진을 실제로 정지!
+  // 이전에는 UI만 변경하고 recognition.stop()을 호출하지 않아서
+  // 백그라운드에서 계속 스피커 소리를 잡았던 근본 원인!
+  if (recognition) {
+    try {
+      recognition.stop();
+    } catch (e) {
+      // 이미 정지된 상태에서 또 stop()하면 에러 — 무시
+    }
+  }
+  
   if (giantMicBtn) giantMicBtn.classList.remove('listening');
   if (micIcon) micIcon.innerText = "🎙️";
   if (micLabel) micLabel.innerText = "화상 대화 시작하기";
-  if (lingoStatusTag) lingoStatusTag.innerText = "👩‍🏫 마이크를 누르거나 화면을 터치해 실제 화상 통화처럼 대화하세요!";
+  if (lingoStatusTag) lingoStatusTag.innerText = "👩‍🏫 마이크를 누르고 원어민 선생님과 실제 화상 통화를 시작하세요!";
 }
 
 function renderQuickChips() {
