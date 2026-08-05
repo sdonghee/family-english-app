@@ -32,6 +32,10 @@ let conversationTurnCount = 0;
 let isSpeakingAnim = false;
 let recentRepliesBuffer = [];
 
+let userErrorPatterns = { tense: 0, article: 0, preposition: 0, wordOrder: 0, agreement: 0, other: 0 };
+let uniqueWordsUsed = new Set();
+let sentenceLengths = [];
+
 let currentDailyMission = {
   expression: "Could you tell me more?",
   completed: false
@@ -168,14 +172,39 @@ function openReportModal() {
     }
   }
 
+  // Analytics Calculation
+  let mostCommonError = "없음";
+  let maxErrorCount = 0;
+  for (const [errorType, count] of Object.entries(userErrorPatterns)) {
+    if (count > maxErrorCount) {
+      maxErrorCount = count;
+      mostCommonError = errorType;
+    }
+  }
+  
+  const vocabDiversity = uniqueWordsUsed.size;
+  const avgSentenceLength = sentenceLengths.length > 0 ? (sentenceLengths.reduce((a, b) => a + b, 0) / sentenceLengths.length).toFixed(1) : 0;
+  
+  const errorMapKr = { tense: "시제 오류", article: "관사 오류", preposition: "전치사 오류", wordOrder: "어순 오류", agreement: "수일치 오류", other: "기타 오류", "없음": "없음" };
+  const krErrorName = errorMapKr[mostCommonError] || mostCommonError;
+
   if (reportFeedbackSummary) {
     const pName = activeProfile ? activeProfile.name : '학습자';
     if (turns === 0) {
       reportFeedbackSummary.innerText = `안녕하세요 ${pName}님! Chloe 선생님과의 대화를 시작하시면 오늘의 1분 성취 리포트가 자동으로 기록됩니다. 🎙️`;
-    } else if (turns < 3) {
-      reportFeedbackSummary.innerText = `${pName}님, 좋은 시작이에요! 총 ${turns}번의 대화를 주고받았습니다. 더 많은 문장을 말해보고 원어민 어휘를 수집해보세요! 💪`;
     } else {
-      reportFeedbackSummary.innerText = `대단해요, ${pName}님! 총 ${turns}번의 대화 동안 ${nativeCount}개의 원어민 표현을 수집하셨네요! 적극적인 대화 참여와 발음 시도가 최고입니다. 🌟`;
+      let feedbackHTML = `대단해요, ${pName}님! 총 ${turns}번의 대화 동안 ${nativeCount}개의 원어민 표현을 수집하셨네요! 🌟<br><br>`;
+      feedbackHTML += `<b>📊 오늘의 학습 분석:</b><br>`;
+      feedbackHTML += `- 사용한 다양한 단어 수 (어휘력): <b>${vocabDiversity} 단어</b><br>`;
+      feedbackHTML += `- 평균 문장 길이 (복잡도): <b>${avgSentenceLength} 단어/문장</b><br>`;
+      feedbackHTML += `- 가장 자주 틀린 부분: <b>${krErrorName}</b> (${maxErrorCount}회)<br><br>`;
+      feedbackHTML += `<b>💡 맞춤형 피드백:</b><br>`;
+      if (maxErrorCount > 0) {
+        feedbackHTML += `${krErrorName}에 조금 더 신경써서 말해보면 완벽한 원어민에 가까워질 거예요!`;
+      } else {
+        feedbackHTML += `현재 문법이 매우 정확합니다! 더 길고 복잡한 문장에 도전해보세요!`;
+      }
+      reportFeedbackSummary.innerHTML = feedbackHTML;
     }
   }
 
@@ -827,6 +856,20 @@ async function handleSendMessage() {
 
 function handleAiResponseReceived(aiResponse, userText) {
   const grammarFixNote = checkUserEnglishGrammar(userText);
+  
+  // Analytics Tracking
+  const words = userText.toLowerCase().match(/\b[a-z']+\b/g) || [];
+  words.forEach(w => uniqueWordsUsed.add(w));
+  if (words.length > 0) sentenceLengths.push(words.length);
+
+  if (grammarFixNote) {
+    if (grammarFixNote.includes("과거형")) userErrorPatterns.tense++;
+    else if (grammarFixNote.includes("전치사")) userErrorPatterns.preposition++;
+    else if (grammarFixNote.includes("목적어가 동사 뒤")) userErrorPatterns.wordOrder++;
+    else if (grammarFixNote.includes("수일치") || grammarFixNote.includes("-s/es")) userErrorPatterns.agreement++;
+    else if (grammarFixNote.includes("주격")) userErrorPatterns.other++;
+    else userErrorPatterns.other++;
+  }
 
   const aiMsg = {
     sender: 'ai',
@@ -883,16 +926,38 @@ function correctPhoneticMishearings(text) {
   if (!text) return text;
   let cleaned = text;
   
-  // 한국인 영어 학습자의 흔한 발음 튀는 현상 단어 보정 맵
   const phoneticMap = [
+    [/\blight\b/gi, "right"], [/\blice\b/gi, "rice"], [/\blead\b/gi, "read"], [/\blily\b/gi, "really"], [/\bload\b/gi, "road"],
+    [/\bpray\b/gi, "play"], [/\bfry\b/gi, "fly"],
+    [/\bsink\b/gi, "think"], [/\b(sree|tree)\b/gi, "three"], [/\bdis\b/gi, "this"], [/\bdat\b/gi, "that"],
+    [/\bmass\b/gi, "math"], [/\bbass\b/gi, "bath"],
+    [/\bberry\b/gi, "very"], [/\bbest\b/gi, "vest"], [/\bwine\b/gi, "vine"], [/\bban\b/gi, "van"],
+    [/\bpun\b/gi, "fun"], [/\bpish\b/gi, "fish"], [/\bcopy\b/gi, "coffee"], [/\bpone\b/gi, "phone"],
     [/\bwant to skull\b/gi, "went to school"],
     [/\bwant to store\b/gi, "went to store"],
-    [/\bplay game\b/gi, "playing games"],
-    [/\bgo market\b/gi, "go to market"],
-    [/\blisten music\b/gi, "listen to music"],
+    [/\bi am go to\b/gi, "I am going to"],
+    [/\bwhat did you did\b/gi, "what did you do"],
+    [/\bi have go\b/gi, "I have to go"],
+    [/\bcopy shop\b/gi, "coffee shop"],
+    [/\bi play a piano\b/gi, "I play the piano"],
+    [/\bhe don't\b/gi, "he doesn't"],
+    [/\byesterday i go\b/gi, "yesterday I went"],
+    [/\bi am agree\b/gi, "I agree"],
+    [/\bshe is have\b/gi, "she has"],
+    [/\bmore better\b/gi, "better"],
+    [/\bmost fastest\b/gi, "fastest"],
     [/\bi am boring\b/gi, "I am bored"],
+    [/\bi am interesting\b/gi, "I am interested"],
+    [/\blisten music\b/gi, "listen to music"],
+    [/\bgo market\b/gi, "go to the market"],
+    [/\bdiscuss about\b/gi, "discuss"],
+    [/\bexplain me\b/gi, "explain to me"],
+    [/\bplay game\b/gi, "playing games"],
     [/\bme like\b/gi, "I like"],
-    [/\bme go\b/gi, "I go"]
+    [/\bme go\b/gi, "I go"],
+    [/\bi scream\b/gi, "ice cream"],
+    [/\ban ice\b/gi, "a nice"],
+    [/\bits snot\b/gi, "it's not"]
   ];
 
   phoneticMap.forEach(([regex, replacement]) => {
@@ -962,6 +1027,109 @@ async function fetchRealGeminiResponse(profile, userText) {
   }
 }
 
+const OFFLINE_TOPICS = {
+  travel: [
+    "I love traveling! Where is the best place you have ever visited?",
+    "Traveling is so fun. Do you prefer the beach or the mountains?",
+    "If you could travel anywhere in the world right now, where would you go?"
+  ],
+  school: [
+    "School can be fun! What's your favorite subject?",
+    "Did you learn anything interesting at school today?",
+    "What do you usually do during recess at school?"
+  ],
+  family: [
+    "Family is so important! Do you have a favorite thing you do with your family?",
+    "What's the funniest thing that happened with your family recently?",
+    "Do you help your parents at home? What chores do you do?"
+  ],
+  emotions: [
+    "It's good to talk about feelings. What made you smile today?",
+    "I understand. How do you usually cheer yourself up when you're sad?",
+    "That sounds intense. What are you most excited about right now?"
+  ],
+  hobbies: [
+    "Hobbies are great! How did you get into your favorite hobby?",
+    "What do you enjoy doing in your free time the most?",
+    "Is there a new hobby you'd like to try someday?"
+  ],
+  dreams: [
+    "Dreams are magical! What do you want to be when you grow up?",
+    "If you had a superpower, what would it be?",
+    "What is your biggest dream right now?"
+  ],
+  health: [
+    "Health is wealth! What's your favorite way to exercise?",
+    "Did you drink enough water today? It's really important!",
+    "What's your favorite healthy snack to eat?"
+  ],
+  weather: [
+    "The weather affects our mood. Do you like rainy days or sunny days?",
+    "What's the weather like where you are today?",
+    "What's your favorite season of the year?"
+  ],
+  food: [
+    "Food is delicious! What's your absolute favorite meal?",
+    "If you could only eat one food for the rest of your life, what would it be?",
+    "Do you like cooking or baking? What's the best thing you can make?"
+  ],
+  culture: [
+    "Culture is fascinating! What's a traditional dish from your country that you love?",
+    "Do you have a favorite festival or holiday in your culture?",
+    "What's something unique about your country that you think everyone should know?"
+  ],
+  movies: [
+    "I love movies! What's the best movie you've seen recently?",
+    "If you could be any character in a movie, who would you be?",
+    "Do you prefer action movies or funny ones?"
+  ],
+  music: [
+    "Music is a universal language! What kind of music do you listen to?",
+    "Do you play any musical instruments, or do you want to learn one?",
+    "Who is your favorite singer or band?"
+  ],
+  sports: [
+    "Sports keep us active! What's your favorite sport to play or watch?",
+    "Have you ever been to a live sports game?",
+    "Who is your favorite athlete?"
+  ],
+  technology: [
+    "Technology is amazing! What's your favorite app or gadget?",
+    "How do you think technology will change the world in the future?",
+    "Do you like playing video games? Which one is your favorite?"
+  ],
+  work: [
+    "Work can be rewarding! What do you think is the hardest job in the world?",
+    "If you could have any job for a day, what would it be?",
+    "What do you think is the best part about having a job?"
+  ],
+  relationships: [
+    "Relationships are important! What makes a good friend?",
+    "Who is someone you look up to and why?",
+    "What's the best way to show someone you care about them?"
+  ],
+  pets: [
+    "Pets are so cute! Do you have any pets, or do you want one?",
+    "If you could have any animal as a pet, what would you choose?",
+    "What's the funniest thing you've seen a pet do?"
+  ],
+  holidays: [
+    "Holidays are the best! What's your favorite holiday of the year?",
+    "How do you usually celebrate your favorite holiday?",
+    "If you could invent a new holiday, what would it celebrate?"
+  ],
+  nature: [
+    "Nature is beautiful! What's your favorite animal in the wild?",
+    "Do you like camping or hiking in nature?",
+    "What's the most beautiful place in nature you've ever seen?"
+  ],
+  science: [
+    "Science is cool! What's the most interesting science fact you know?",
+    "If you could travel to space, which planet would you visit?",
+    "What's a scientific invention you wish existed?"
+  ]
+};
+
 // 🧠 문맥을 100% 반영해 질문에 '진짜 대답'하는 초스마트 오프라인 추론 엔진
 function generateNaturalHumanResponse(profile, userText) {
   conversationTurnCount++;
@@ -972,44 +1140,77 @@ function generateNaturalHumanResponse(profile, userText) {
   let trans = "";
   let native = "";
   let adv = "";
+  
+  const grammarFixNote = checkUserEnglishGrammar(userText);
 
-  if (lower.includes("name") || lower.includes("who are you") || lower.includes("your name")) {
+  // Determine Topic
+  let matchedTopic = null;
+  const topicKeywords = {
+    travel: ["travel", "trip", "visit", "go to", "vacation"],
+    school: ["school", "study", "teacher", "class", "homework"],
+    family: ["family", "mom", "dad", "sister", "brother", "parents"],
+    emotions: ["happy", "sad", "angry", "excited", "tired", "feel"],
+    hobbies: ["hobby", "play", "game", "read", "watch", "fun"],
+    dreams: ["dream", "want to be", "future", "hope"],
+    health: ["health", "sick", "doctor", "hospital", "exercise"],
+    weather: ["weather", "rain", "sun", "cold", "hot", "snow"],
+    food: ["food", "eat", "lunch", "dinner", "hungry", "delicious"],
+    culture: ["culture", "korea", "tradition", "country"],
+    movies: ["movie", "cinema", "film", "watch"],
+    music: ["music", "song", "sing", "listen"],
+    sports: ["sport", "soccer", "baseball", "basketball", "play"],
+    technology: ["computer", "phone", "app", "internet", "tech"],
+    work: ["work", "job", "office", "money"],
+    relationships: ["friend", "love", "meet", "people"],
+    pets: ["pet", "dog", "cat", "animal", "cute"],
+    holidays: ["holiday", "christmas", "halloween", "vacation", "party"],
+    nature: ["nature", "tree", "mountain", "sea", "flower", "animal"],
+    science: ["science", "space", "star", "planet", "math"]
+  };
+
+  for (const [topic, keywords] of Object.entries(topicKeywords)) {
+    if (keywords.some(kw => lower.includes(kw))) {
+      matchedTopic = topic;
+      break;
+    }
+  }
+
+  if (lower.includes("name") || lower.includes("who are you")) {
     reply = `My name is Chloe! I'm your native English teacher. What's your name, ${enName}?`;
     trans = `제 이름은 클로이예요! 여러분의 원어민 영어 선생님이죠. ${krName}님의 이름은 무엇인가요?`;
     native = `I'm Chloe, nice to meet you!`;
     adv = `My name is Chloe, I serve as your native English instructor.`;
-  } else if (lower.includes("how are you") || lower.includes("how do you do") || lower.includes("what's up")) {
-    reply = `I'm doing wonderful today, ${enName}! Thanks for asking. How has your day been going?`;
-    trans = `저는 오늘 정말 잘 지내고 있어요, ${krName}님! 물어봐 주셔서 고마워요. 오늘 하루는 어떻게 보내고 계신가요?`;
-    native = `I'm doing great, thanks! How about you?`;
-    adv = `I am functioning exceptionally well today. How is your day progressing?`;
-  } else if (lower.includes("weather") || lower.includes("rain") || lower.includes("sunny") || lower.includes("cold") || lower.includes("hot")) {
-    reply = `The weather sounds really interesting today! Do you prefer sunny days or rainy days, ${enName}?`;
-    trans = `오늘 날씨 이야기는 정말 재미있네요! ${krName}님은 해가 쨍쨍한 날과 비 오는 날 중 어떤 날을 더 좋아하시나요?`;
-    native = `Do you like sunny or rainy days better?`;
-    adv = `Do you incline towards sunny or precipitative weather conditions?`;
-  } else if (lower.includes("food") || lower.includes("eat") || lower.includes("lunch") || lower.includes("dinner") || lower.includes("pizza") || lower.includes("burger") || lower.includes("hungry")) {
-    reply = `Mmm, talking about food makes me hungry, ${enName}! What's your absolute favorite food to eat?`;
-    trans = `음, 음식 이야기를 하니까 배가 고파지네요, ${krName}님! 가장 좋아하는 음식은 무엇인가요?`;
-    native = `What's your favorite food?`;
-    adv = `Which culinary item do you hold in highest regard?`;
-  } else if (lower.includes("game") || lower.includes("roblox") || lower.includes("play") || lower.includes("toy") || lower.includes("minecraft")) {
-    reply = `Playing games is so much fun! What game do you play the most these days, ${enName}?`;
-    trans = `게임하는 건 정말 신나는 일이죠! ${krName}님, 요즘 어떤 게임을 가장 많이 하시나요?`;
-    native = `What game do you play most?`;
-    adv = `Which interactive game do you engage with most frequently?`;
-  } else if (lower.includes("tired") || lower.includes("sleep") || lower.includes("hard") || lower.includes("busy")) {
-    reply = `Oh, I hear you, ${enName}. You worked so hard today! Please make sure to get some rest, okay?`;
-    trans = `아, 무슨 말씀이신지 이해해요, ${krName}님. 오늘 정말 수고 많으셨어요! 꼭 맛있는 것도 드시고 쉬세요, 아셨죠?`;
-    native = `Make sure to get rest today!`;
-    adv = `Ensure you prioritize adequate rest and recuperation.`;
+  } else if (matchedTopic && OFFLINE_TOPICS[matchedTopic]) {
+    const options = OFFLINE_TOPICS[matchedTopic];
+    // Repetition Prevention
+    let availableOptions = options.filter(opt => !recentRepliesBuffer.includes(opt));
+    if (availableOptions.length === 0) availableOptions = options; // fallback
+    
+    reply = availableOptions[Math.floor(Math.random() * availableOptions.length)];
+    recentRepliesBuffer.push(reply);
+    if (recentRepliesBuffer.length > 5) recentRepliesBuffer.shift();
+    
+    trans = `(오프라인 모드: ${matchedTopic} 주제 질문)`;
+    native = `Tell me more about ${matchedTopic}!`;
+    adv = `Could you elaborate on the topic of ${matchedTopic}?`;
   } else {
-    // 키워드를 직접 반영하여 질문에 '진짜 대답'하는 스마트 문맥 응답
-    const userWords = userText.split(' ').slice(0, 3).join(' ');
-    reply = `Ah, you mentioned "${userWords}"! That is really interesting, ${enName}. Tell me a bit more about it!`;
-    trans = `아, "${userWords}"에 대해 말씀하셨군요! 정말 흥미롭네요, ${krName}님. 그에 대해 조금만 더 말씀해 주시겠어요?`;
-    native = `Tell me more about that!`;
-    adv = `Could you elaborate further on that topic?`;
+    // Contextual Follow-up or Generic fallback
+    const options = [
+      `That is really interesting, ${enName}. Tell me a bit more about it!`,
+      `Wow, I see. What do you think about that?`,
+      `Oh, really? Why is that?`,
+      `That makes sense. Can you explain more?`
+    ];
+    let availableOptions = options.filter(opt => !recentRepliesBuffer.includes(opt));
+    if (availableOptions.length === 0) availableOptions = options;
+    
+    reply = availableOptions[Math.floor(Math.random() * availableOptions.length)];
+    recentRepliesBuffer.push(reply);
+    if (recentRepliesBuffer.length > 5) recentRepliesBuffer.shift();
+
+    trans = `그것에 대해 조금 더 말씀해 주시겠어요, ${krName}님?`;
+    native = `Tell me more!`;
+    adv = `Please elaborate on your previous statement.`;
   }
 
   return {
@@ -1017,7 +1218,7 @@ function generateNaturalHumanResponse(profile, userText) {
     translation: trans,
     nativeUpgrade: native,
     advancedUpgrade: adv,
-    grammarFixNote: ""
+    grammarFixNote: grammarFixNote
   };
 }
 
