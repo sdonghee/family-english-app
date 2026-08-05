@@ -84,23 +84,33 @@ Return ONLY a valid JSON object:
 }${formattedHistory}${formattedFlashcards}`;
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
+    let url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
 
     const bodyData = {
       system_instruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: 'user', parts: [{ text: userText }] }],
       generationConfig: {
-        temperature: 0.8,
+        temperature: 0.85,
         topP: 0.95,
         responseMimeType: "application/json"
       }
     };
 
-    const response = await fetch(url, {
+    let response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bodyData)
     });
+
+    if (!response.ok) {
+      console.warn("Primary 3.6-flash endpoint error, trying flash fallback...", response.status);
+      url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyData)
+      });
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
