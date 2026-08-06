@@ -698,20 +698,26 @@ function setupSpeechRecognition() {
     }
 
     let interim = '';
+    let finalString = '';
     let hasNewFinal = false;
 
-    for (let i = event.resultIndex; i < event.results.length; ++i) {
-      const transcriptChunk = event.results[i][0].transcript;
+    // 🐛 핵심 버그 수정: Android 크롬/삼성인터넷에서는 resultIndex가 꼬이거나
+    // 누적 텍스트를 중복으로 뱉는 버그가 있습니다. 
+    // += 로 이어붙이지 말고 매번 0부터 끝까지 다시 조립(Rebuild)하는 것이 가장 안전합니다.
+    for (let i = 0; i < event.results.length; ++i) {
+      const chunk = event.results[i][0].transcript;
       if (event.results[i].isFinal) {
-        accumulatedTranscript += (accumulatedTranscript ? ' ' : '') + transcriptChunk;
-        hasNewFinal = true;
+        finalString += chunk;
+        if (i >= event.resultIndex) hasNewFinal = true;
       } else {
-        interim += transcriptChunk;
+        interim += chunk;
       }
     }
 
+    accumulatedTranscript = finalString;
+
     // 화면 입력창에는 실시간으로 말하는 내용 표시
-    const displayText = accumulatedTranscript + (interim ? ' ' + interim : '');
+    const displayText = (accumulatedTranscript + ' ' + interim).trim();
     if (chatInput) chatInput.value = displayText;
 
     // 🛑 중요: 완벽히 확정된 문장(hasNewFinal)이 들어왔을 때만 전송 타이머 작동!
