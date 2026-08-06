@@ -1078,9 +1078,9 @@ async function fetchRealGeminiResponse(profile, userText) {
     apiKey: userGeminiApiKey || ''
   };
 
-  // 15초 타임아웃
+  // 모바일 환경 및 Vercel 콜드스타트를 고려하여 타임아웃을 25초로 넉넉하게 연장
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
 
   try {
     if (lingoStatusTag) lingoStatusTag.innerText = "🔄 Chloe 교수님과 연결 중...";
