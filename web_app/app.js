@@ -834,20 +834,26 @@ function stopListening() {
   if (lingoStatusTag) lingoStatusTag.innerText = "👩‍🏫 마이크를 누르고 원어민 선생님과 실제 화상 통화를 시작하세요!";
 }
 
-function renderQuickChips() {
+function renderQuickChips(hintOptions = null) {
   if (!quickChipsContainer) return;
   quickChipsContainer.innerHTML = '';
   if (!activeProfile) return;
 
   let chips = [];
-  if (activeProfile.age <= 5) {
-    chips = ["I played with my toys!", "I had delicious snacks!", "Can you tell me a story?"];
-  } else if (activeProfile.age <= 7) {
-    chips = ["I love T-Rex dinosaurs!", "I played with friends today!", "Teach me a fun word!"];
-  } else if (activeProfile.age <= 9) {
-    chips = ["I love playing games!", "I listened to my favorite song!", "Let me tell you something!"];
+  if (hintOptions && Array.isArray(hintOptions) && hintOptions.length > 0) {
+    // 💡 AI가 내려준 상황 맞춤형 다이내믹 힌트 사용
+    chips = hintOptions;
   } else {
-    chips = ["How was your day today?", "What topic should we explore?", "Can you teach me a native idiom?"];
+    // 기본 폴백 힌트
+    if (activeProfile.age <= 5) {
+      chips = ["I played with my toys!", "I had delicious snacks!", "Can you tell me a story?"];
+    } else if (activeProfile.age <= 7) {
+      chips = ["I love T-Rex dinosaurs!", "I played with friends today!", "Teach me a fun word!"];
+    } else if (activeProfile.age <= 9) {
+      chips = ["I love playing games!", "I listened to my favorite song!", "Let me tell you something!"];
+    } else {
+      chips = ["How was your day today?", "What topic should we explore?", "Can you teach me a native idiom?"];
+    }
   }
 
   chips.forEach(text => {
@@ -953,6 +959,9 @@ function handleAiResponseReceived(aiResponse, userText) {
   chatHistories[activeProfile.id].push(aiMsg);
   saveHistories();
   renderMessages();
+  
+  // 💡 다이내믹 힌트 렌더링
+  renderQuickChips(aiResponse.hintOptions);
 
   // 🎴 자동 어휘 저장: 교정된 원어민 추천 표현이 있으면 단어장에 자동 수집
   if (aiResponse.nativeUpgrade && aiResponse.nativeUpgrade.length > 3) {
@@ -1283,7 +1292,8 @@ function generateNaturalHumanResponse(profile, userText) {
     translation: trans,
     nativeUpgrade: native,
     advancedUpgrade: adv,
-    grammarFixNote: grammarFixNote
+    grammarFixNote: grammarFixNote,
+    hintOptions: ["That's interesting!", "Tell me more.", "I didn't know that."]
   };
 }
 
