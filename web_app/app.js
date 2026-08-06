@@ -200,6 +200,16 @@ function openReportModal() {
       feedbackHTML += `- 사용한 다양한 단어 수 (어휘력): <b>${vocabDiversity} 단어</b><br>`;
       feedbackHTML += `- 평균 문장 길이 (복잡도): <b>${avgSentenceLength} 단어/문장</b><br>`;
       feedbackHTML += `- 가장 자주 틀린 부분: <b>${krErrorName}</b> (${maxErrorCount}회)<br><br>`;
+      
+      if (userFlashcards && userFlashcards.length > 0) {
+        feedbackHTML += `<b>🗂️ 오늘의 오답 노트 & 추천 표현:</b><br><ul style="margin-top: 5px; margin-bottom: 15px; padding-left: 20px;">`;
+        const recentCards = userFlashcards.slice(0, 3);
+        recentCards.forEach(card => {
+          feedbackHTML += `<li style="margin-bottom: 5px;">❌ <i>${card.original}</i><br>✅ <b>${card.native}</b></li>`;
+        });
+        feedbackHTML += `</ul>`;
+      }
+      
       feedbackHTML += `<b>💡 맞춤형 피드백:</b><br>`;
       if (maxErrorCount > 0) {
         feedbackHTML += `${krErrorName}에 조금 더 신경써서 말해보면 완벽한 원어민에 가까워질 거예요!`;
@@ -1386,6 +1396,13 @@ function setupEventListeners() {
   if (chatInput) {
     chatInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') handleSendMessage();
+    });
+    chatInput.addEventListener('focus', () => {
+      if (speechPauseTimer) {
+        clearTimeout(speechPauseTimer);
+        console.log("🎤 Edit mode: Auto-send paused.");
+        if (lingoStatusTag) lingoStatusTag.innerText = "✍️ 텍스트를 직접 수정하고 엔터를 누르세요!";
+      }
     });
   }
 
