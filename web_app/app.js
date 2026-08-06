@@ -676,7 +676,8 @@ function setupSpeechRecognition() {
   }
 
   recognition = new SpeechRecognition();
-  recognition.continuous = true;
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  recognition.continuous = !isMobile; // 안드로이드 중복 버그 방지를 위해 모바일에서는 continuous 모드 해제
   recognition.interimResults = true;
   recognition.lang = 'en-US';
 
@@ -698,23 +699,17 @@ function setupSpeechRecognition() {
     }
 
     let interim = '';
-    let finalString = '';
     let hasNewFinal = false;
 
-    // 🐛 핵심 버그 수정: Android 크롬/삼성인터넷에서는 resultIndex가 꼬이거나
-    // 누적 텍스트를 중복으로 뱉는 버그가 있습니다. 
-    // += 로 이어붙이지 말고 매번 0부터 끝까지 다시 조립(Rebuild)하는 것이 가장 안전합니다.
-    for (let i = 0; i < event.results.length; ++i) {
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
       const chunk = event.results[i][0].transcript;
       if (event.results[i].isFinal) {
-        finalString += chunk;
-        if (i >= event.resultIndex) hasNewFinal = true;
+        accumulatedTranscript += (accumulatedTranscript ? ' ' : '') + chunk;
+        hasNewFinal = true;
       } else {
         interim += chunk;
       }
     }
-
-    accumulatedTranscript = finalString;
 
     // 화면 입력창에는 실시간으로 말하는 내용 표시
     const displayText = (accumulatedTranscript + ' ' + interim).trim();
