@@ -94,13 +94,34 @@ Return ONLY a valid JSON object:
   try {
     let url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
 
+    const responseSchema = {
+      type: "object",
+      properties: {
+        reply: { type: "string" },
+        translation: { type: "string" },
+        grammarFixNote: { type: "string" },
+        nativeUpgrade: { type: "string" },
+        advancedUpgrade: { type: "string" },
+        pronunciationTip: { type: "string" },
+        hintOptions: {
+          type: "array",
+          items: { type: "string" }
+        },
+        practiceSentence: { type: "string" },
+        dailyMission: { type: "string" },
+        reportSummary: { type: "string" }
+      },
+      required: ["reply", "translation", "grammarFixNote", "nativeUpgrade", "advancedUpgrade", "pronunciationTip", "hintOptions", "practiceSentence", "dailyMission", "reportSummary"]
+    };
+
     const bodyData = {
       system_instruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: 'user', parts: [{ text: userText }] }],
       generationConfig: {
         temperature: 0.88,
         topP: 0.95,
-        responseMimeType: "application/json"
+        responseMimeType: "application/json",
+        responseSchema: responseSchema
       }
     };
 
