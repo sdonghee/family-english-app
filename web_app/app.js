@@ -1011,37 +1011,52 @@ function correctPhoneticMishearings(text) {
   if (!text) return text;
   let cleaned = text;
   
+  /**
+   * ⚠️ 2026-08 대폭 축소했습니다. 아래 두 종류를 전부 걷어냈습니다.
+   *
+   * ① 멀쩡한 영어 단어를 다른 단어로 바꿔버리던 것들
+   *
+   *    light→right, tree→three, best→vest, berry→very, copy→coffee,
+   *    ban→van, bass→bath, wine→vine, lead→read, load→road, sink→think,
+   *    mass→math, fry→fly, lily→really, pray→play
+   *
+   *    이건 **조건 없이** 치환됩니다. 그래서 실제로 이렇게 됐습니다.
+   *      "I saw a big tree in the park"  → "I saw a big three in the park"
+   *      "I turned on the light"         → "I turned on the right"
+   *      "My dad is the best"            → "My dad is the vest"
+   *      "I pray every morning"          → "I play every morning"
+   *
+   *    선생님은 이 망가진 문장을 받습니다. 그리고 프롬프트가 "오인식은
+   *    지적하지 말고 맥락으로 알아들어라"라고 시켜놨으니, 무슨 말인지
+   *    모르는 채로 **안전하고 밋밋한 대답**만 하게 됩니다.
+   *    "대답이 제한적이고 반복적" 의 큰 원인이 여기 있었습니다.
+   *
+   *    게다가 화면과 기록에는 **원문**이 남습니다(app.js에서 raw 를 저장).
+   *    그래서 다음 턴에 선생님은 멀쩡한 문장과 자기가 했던 엉뚱한 대답을
+   *    나란히 보게 되고, 왜 그랬는지 알 방법이 없습니다.
+   *
+   *    발음 오인식은 이제 **선생님이** 처리합니다. 서버 프롬프트의
+   *    EXTREME STT HALLUCINATION TOLERANCE 가 바로 그 장치이고,
+   *    맥락을 아는 쪽이 판단하는 게 맞습니다. 정규식은 맥락을 모릅니다.
+   *
+   * ② 학습자의 문법을 몰래 고쳐주던 것들
+   *
+   *    "he don't"→"he doesn't", "yesterday i go"→"yesterday I went",
+   *    "i am boring"→"I am bored", "more better"→"better" 등
+   *
+   *    이건 더 나쁩니다. **이 앱이 가르치려는 바로 그 실수들**을 선생님이
+   *    보기 전에 지워버립니다. 선생님은 학습자가 완벽하게 말했다고 믿으니
+   *    grammarFixNote 를 만들 이유가 없어집니다. 교정 카드가 안 뜨는 게
+   *    당연했습니다.
+   *
+   * 남긴 것은 **영어 단어가 아닌 것**뿐입니다. 이건 바꿔도 잃을 게 없습니다.
+   */
   const phoneticMap = [
-    [/\blight\b/gi, "right"], [/\blice\b/gi, "rice"], [/\blead\b/gi, "read"], [/\blily\b/gi, "really"], [/\bload\b/gi, "road"],
-    [/\bpray\b/gi, "play"], [/\bfry\b/gi, "fly"],
-    [/\bsink\b/gi, "think"], [/\b(sree|tree)\b/gi, "three"], [/\bdis\b/gi, "this"], [/\bdat\b/gi, "that"],
-    [/\bmass\b/gi, "math"], [/\bbass\b/gi, "bath"],
-    [/\bberry\b/gi, "very"], [/\bbest\b/gi, "vest"], [/\bwine\b/gi, "vine"], [/\bban\b/gi, "van"],
-    [/\bpun\b/gi, "fun"], [/\bpish\b/gi, "fish"], [/\bcopy\b/gi, "coffee"], [/\bpone\b/gi, "phone"],
+    [/\bsree\b/gi, "three"],
+    [/\bdat\b/gi, "that"],
+    [/\bpish\b/gi, "fish"],
+    [/\bpone\b/gi, "phone"],
     [/\bwant to skull\b/gi, "went to school"],
-    [/\bwant to store\b/gi, "went to store"],
-    [/\bi am go to\b/gi, "I am going to"],
-    [/\bwhat did you did\b/gi, "what did you do"],
-    [/\bi have go\b/gi, "I have to go"],
-    [/\bcopy shop\b/gi, "coffee shop"],
-    [/\bi play a piano\b/gi, "I play the piano"],
-    [/\bhe don't\b/gi, "he doesn't"],
-    [/\byesterday i go\b/gi, "yesterday I went"],
-    [/\bi am agree\b/gi, "I agree"],
-    [/\bshe is have\b/gi, "she has"],
-    [/\bmore better\b/gi, "better"],
-    [/\bmost fastest\b/gi, "fastest"],
-    [/\bi am boring\b/gi, "I am bored"],
-    [/\bi am interesting\b/gi, "I am interested"],
-    [/\blisten music\b/gi, "listen to music"],
-    [/\bgo market\b/gi, "go to the market"],
-    [/\bdiscuss about\b/gi, "discuss"],
-    [/\bexplain me\b/gi, "explain to me"],
-    [/\bplay game\b/gi, "playing games"],
-    [/\bme like\b/gi, "I like"],
-    [/\bme go\b/gi, "I go"],
-    [/\bi scream\b/gi, "ice cream"],
-    [/\ban ice\b/gi, "a nice"],
     [/\bits snot\b/gi, "it's not"]
   ];
 
