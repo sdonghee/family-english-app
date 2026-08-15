@@ -64,15 +64,17 @@ export const CHILD_GAMES = {
  * 화면과 진단 파일에 함께 찍힙니다. "고쳤다는데 여전히 같은 증상"일 때,
  * 새 버전이 실제로 배포된 건지부터 확인할 수 있어야 합니다.
  */
-export const APP_VERSION = 'v8';
+export const APP_VERSION = 'v9-turn';
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   오디오 규격 — Gemini Live API가 요구하는 값 (바꾸지 마세요)
+   오디오 규격 (바꾸지 마세요)
    ═══════════════════════════════════════════════════════════════════════════ */
 export const AUDIO = {
   /** 마이크 → Gemini: PCM16 mono 16kHz */
   INPUT_SAMPLE_RATE: 16000,
-  /** Gemini → 우리: PCM16 mono 24kHz */
+  /** Gemini TTS → 우리: PCM16 mono 24kHz
+      ⚠️ api/tts.js 가 돌려주는 sampleRate 와 반드시 같아야 합니다.
+         다르면 선생님 목소리가 느려지거나 다람쥐처럼 들립니다. */
   OUTPUT_SAMPLE_RATE: 24000,
   /** 우리 → Simli: PCM16 mono 16kHz */
   AVATAR_SAMPLE_RATE: 16000,
