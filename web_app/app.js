@@ -21,7 +21,14 @@ import {
 } from './src/config.js';
 import { MicStream } from './src/mic.js';
 import { AudioPlayer } from './src/player.js';
-import { LiveSession, LiveState } from './src/liveSession.js';
+/* ⚠️ 원래 './src/liveSession.js' (Gemini Live API, WebSocket 실시간 음성) 였습니다.
+      Live API 가 이 계정에서 열리지 않는 것을 확인해서, 한 턴씩 주고받는
+      방식(일반 Gemini + Gemini TTS)으로 바꿨습니다.
+      chatSession.js 가 **같은 신호 규격**을 그대로 내보내므로 아래 코드는
+      거의 그대로입니다. 3D 아바타·재생기·마이크는 손대지 않았습니다.
+      liveSession.js 는 지우지 않고 남겨뒀습니다 — Live API 가 열리면
+      이 import 한 줄만 되돌리면 됩니다. */
+import { LiveSession, LiveState } from './src/chatSession.js';
 import { AvatarManager } from './src/avatar.js';
 import { UsageMeter } from './src/usage.js';
 import { translate, makeQuiz } from './src/assist.js';
@@ -238,6 +245,8 @@ async function startCallInner(profile) {
   app.pendingStageReconnect = false;
   // 새 통화니까 지난 실패 기록은 지웁니다.
   // (설정을 고치고 다시 시작했는데 계속 막혀 있으면 안 됩니다)
+  // liveAnnounced: '연결됐다'를 이미 셌는지. @see handleLiveState
+  app.liveAnnounced = false;
   app.resumeFailStreak = 0;
   app.resumeBackoffUntil = 0;
   app.resumeBlockedReason = null;
@@ -1096,20 +1105,45 @@ function handleLiveState(state, info) {
       UI.setAvatarState('connecting');
       break;
  
-    case LiveState.LIVE:
-      app.diag.connects++;
-      app.diag.resumed = !!app.live?.resumeHandle;
-      updateDiagnostics({ force: true });
+    case LiveState.LIVE: {
+      /* ⚠️ 이 상태는 두 가지 뜻으로 옵니다.
+           (1) 방금 연결됐다
+           (2) 대화 중인데 알릴 말이 있다 (오류, 목소리 폴백, 안내)
+         한 턴씩 주고받는 방식으로 바뀐 뒤로는 연결이 끊기지 않아서
+         (2)가 훨씬 많습니다. 구분하지 않으면 진단창의 '연결 횟수'가 부풀어
+         정작 진짜 재연결이 몇 번 일어났는지 못 보게 됩니다. */
+      if (!app.liveAnnounced) {
+        app.liveAnnounced = true;
+        app.diag.connects++;
+        app.diag.resumed = !!app.live?.resumeHandle;
+      }
       UI.setAvatarState('listening');
-      UI.setStatus(
-        app.settings.halfDuplex
-          ? '편하게 말해 보세요. 끊고 싶으면 ✋ 를 누르면 됩니다.'
-          : '편하게 말해 보세요. 선생님 말 중간에 끼어들어도 괜찮아요.'
-      );
+
+      if (info?.message) {
+        /* ⭐ 반드시 보이게 합니다.
+             여기서 info.message 를 삼키면, 선생님 목소리가 기본 목소리로
+             바뀌어도 화면은 멀쩡해 보입니다. 그게 이 프로젝트에서 가장
+             많은 시간을 날린 실패 방식입니다 — 조용한 폴백. */
+        UI.setStatus(info.message);
+        if (info.error || info.fallback) {
+          app.diag.lastError = info.message;
+          UI.toast(info.message);
+        }
+      } else {
+        UI.setStatus(
+          app.settings.halfDuplex
+            ? '편하게 말해 보세요. 끊고 싶으면 ✋ 를 누르면 됩니다.'
+            : '편하게 말해 보세요. 선생님 말 중간에 끼어들어도 괜찮아요.'
+        );
+      }
+
+      updateDiagnostics({ force: true });
       UI.setMicUi({ active: true, icon: '🎙️', label: '대화 중' });
       break;
+    }
  
     case LiveState.ERROR:
+      app.liveAnnounced = false;
       app.diag.lastError = info?.message || '연결 오류';
       updateDiagnostics({ force: true });
       UI.setAvatarState('error');
@@ -1117,6 +1151,7 @@ function handleLiveState(state, info) {
       break;
  
     case LiveState.IDLE:
+      app.liveAnnounced = false;
       if (app.inCall) {
         // 유휴로 끊긴 정상 상태 — 사용자에게는 "대기 중"으로만 보입니다
         UI.setAvatarState('idle');
