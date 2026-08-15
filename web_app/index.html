@@ -2,195 +2,322 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Max AI - 1:1 Real AI Video Call</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1120">
+  <title>Chloe 선생님과 1:1 영어 회화</title>
+  <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" as="style" crossorigin
+        href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+
+  <!--
+    3D 아바타(three.js)용 import map.
+
+    ⚠️ 이 블록을 지우면 3D 아바타가 통째로 안 뜹니다.
+
+    이유: three.js 의 GLTFLoader 는 내부에서 `import ... from 'three'` 라고
+    씁니다. 이런 "맨 이름(bare specifier)"은 브라우저가 스스로 해석하지
+    못하고, 반드시 import map 이 있어야 실제 주소로 바뀝니다.
+    (import map 없이 CDN 주소로 직접 불러오면
+     "Failed to resolve module specifier \"three\"" 오류가 납니다.
+     실제로 이 오류를 겪고 이 블록을 넣었습니다.)
+
+    import map 은 첫 모듈이 실행되기 **전에** 있어야 하므로,
+    아래 <script type="module"> 보다 반드시 위에 있어야 합니다.
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+    }
+  }
+  </script>
 </head>
 <body>
-  <div class="app-container">
-    <!-- 깔끔한 상단 헤더 -->
-    <header class="app-header">
-      <div class="header-content">
-        <h1 class="logo"><span>Max AI</span> 1:1 Video PT</h1>
-        <div class="header-actions">
-          <button id="report-btn" class="icon-btn highlight-gold">📊 학습 리포트</button>
-          <button id="roleplay-btn" class="icon-btn highlight">🎭 상황 롤플레이</button>
-          <button id="deck-btn" class="icon-btn">🎴 단어장</button>
-          <button id="settings-btn" class="icon-btn">⚙️</button>
-        </div>
+
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       화면 1 · 누가 대화할까요
+       ══════════════════════════════════════════════════════════════════ -->
+  <section id="profile-screen" class="screen active">
+    <header class="hero">
+      <p class="hero-eyebrow">우리 가족 영어 회화</p>
+      <h1 class="hero-title">Chloe 선생님과<br>1:1로 이야기해요</h1>
+      <p class="hero-desc">
+        실시간 음성으로 대화합니다. 모르는 단어는 바로 가르쳐주고,
+        틀린 문장은 자연스럽게 고쳐줍니다.
+      </p>
+    </header>
+
+    <h2 class="section-label">누가 대화할까요?</h2>
+    <div id="profile-grid" class="profile-grid"></div>
+
+    <p class="hint-line">
+      💡 선생님 말을 끊고 싶을 땐 언제든 <b>✋ 나도 말할래요</b>를 누르세요.
+      바로 내 차례가 됩니다. 이어폰을 쓰면 설정에서 목소리로 끼어들 수도 있어요.
+    </p>
+    <p class="version-line">버전 <span id="app-version">–</span></p>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       화면 2 · 통화
+       ══════════════════════════════════════════════════════════════════ -->
+  <section id="call-screen" class="screen">
+
+    <header class="call-header">
+      <button id="back-button" class="icon-btn" aria-label="통화 종료">◀</button>
+      <span id="active-profile" class="active-profile"></span>
+      <span id="stage-chip" class="stage-chip" style="display:none"></span>
+      <div class="header-tools">
+        <button id="roleplay-button" class="icon-btn" aria-label="말놀이 / 상황 연습">🎲</button>
+        <button id="history-button" class="icon-btn" aria-label="지난 대화">💬</button>
+        <button id="vocab-button" class="icon-btn" aria-label="단어장">🎴</button>
+        <button id="report-button" class="icon-btn" aria-label="학습 리포트">📊</button>
+        <button id="settings-button" class="icon-btn" aria-label="설정">⚙️</button>
       </div>
     </header>
 
-    <!-- 메인 화면 -->
-    <main class="main-content">
-      <!-- 1. 프로필 선택 화면 -->
-      <section id="profile-section" class="screen active">
-        <div class="banner-card">
-          <div class="banner-text">
-            <h2>1:1 AI 라이브 화상영어</h2>
-            <p>실제 살아있는 원어민 선생님 Chloe와의 1:1 리얼 비디오 대화</p>
-          </div>
-          <div class="banner-icon">📹</div>
-        </div>
-
-        <h3 class="section-title">누가 대화를 시작할까요?</h3>
-        <div class="profile-grid" id="profile-grid">
-          <!-- JS로 동적 생성 -->
-        </div>
-      </section>
-
-      <!-- 2. Max AI 순수 1:1 화상 대화 스테이지 -->
-      <section id="chat-section" class="screen">
-        <div class="chat-top-bar">
-          <button id="back-to-profiles-btn" class="icon-btn">◀ 프로필 전환</button>
-          <div class="active-profile-header" id="active-profile-header">
-            <!-- 활성 프로필 -->
-          </div>
-        </div>
-
-        <!-- Daily Mission UI Banner -->
-        <div class="daily-mission-banner" id="daily-mission-banner">
-          <div class="mission-content">
-            <span class="mission-tag">🎯 오늘의 미션</span>
-            <span class="mission-expression" id="mission-expression-text">"Could you tell me more?"</span>
-          </div>
-          <span class="mission-badge" id="mission-status-badge">진행 중 🎯</span>
-        </div>
-
-        <!-- Max AI 라이브 비디오 스트림 스테이지 (Continuous Live Motion Video) -->
-        <div class="max-video-stage" id="ai-human-stage">
-          <div class="max-ai-badge">Max AI <span>LIVE VIDEO</span></div>
-
-          <div class="video-avatar-wrapper" id="video-avatar-wrapper">
-            <img src="assets/chloe_teacher_avatar.jpg" alt="Chloe AI Teacher" class="max-teacher-img continuous-motion" id="max-teacher-img">
-            
-            <!-- 눈 깜빡임 오버레이 -->
-            <div class="blink-overlay" id="blink-overlay"></div>
-            
-            <!-- 감정/상태 표시 -->
-            <div class="avatar-state-badge" id="avatar-state-badge">
-              <span class="state-dot"></span>
-              <span class="state-text">대기 중</span>
-            </div>
-            
-            <!-- 말하기 인디케이터 -->
-            <div class="speaking-indicator" id="speaking-indicator">
-              <span></span><span></span><span></span><span></span><span></span>
-            </div>
-            <div class="video-live-pulse" id="video-live-pulse"></div>
-          </div>
-
-          <!-- 자막 오버레이 -->
-          <div class="speech-overlay-box" id="speech-overlay-box">
-            <div class="speech-en-text" id="speech-en-text">"Hi! I'm Chloe. Let's talk!"</div>
-            <div class="speech-kr-sub" id="speech-kr-sub">안녕! 난 Chloe야. 대화하자!</div>
-          </div>
-
-          <div class="lingo-status-tag" id="lingo-status-tag">
-            👩‍🏫 마이크를 누르고 원어민 선생님과 실제 화상 통화를 시작하세요!
-          </div>
-        </div>
-
-        <!-- 대화 내역 (스크롤) -->
-        <div class="chat-messages" id="chat-messages">
-          <!-- 깔끔한 채팅 내역만 표출 -->
-        </div>
-
-        <!-- 대화 추천 칩 -->
-        <div class="quick-chips-container" id="quick-chips-container">
-          <!-- 추천 표현 -->
-        </div>
-
-        <!-- Max AI 비디오 통화 하단 컨트롤 바 -->
-        <div class="max-video-controls">
-          <button class="video-control-sub-btn" id="hint-toggle-btn">🌐 HINT</button>
-          <button class="video-control-sub-btn" id="clear-chat-btn">🗑️ 대화 초기화</button>
-          
-          <button id="giant-mic-btn" class="giant-mic-btn">
-            <div class="mic-inner-circle">
-              <span class="mic-emoji" id="mic-icon">🎙️</span>
-            </div>
-            <span class="mic-text" id="mic-label">화상 대화 시작하기</span>
-          </button>
-        </div>
-
-        <!-- 텍스트 입력창 -->
-        <div class="chat-input-bar">
-          <input type="text" id="chat-input" placeholder="영어로 말씀하시거나 입력해 보세요...">
-          <button id="send-btn" class="send-btn">전송</button>
-        </div>
-      </section>
-    </main>
-
-    <!-- 모달 레이어들 -->
-    <div id="roleplay-modal" class="modal-overlay hidden">
-      <div class="modal-card">
-        <h3>🎭 실전 롤플레이 대화</h3>
-        <p class="sub-desc">원하는 대화 상황을 선택하세요!</p>
-        <div id="roleplay-grid" class="roleplay-grid"></div>
-        <button id="close-roleplay-btn" class="modal-btn secondary">닫기</button>
-      </div>
+    <!-- 사용량 / 하루 목표 -->
+    <div id="usage-bar" class="usage-bar">
+      <div class="usage-track"><i id="usage-fill" class="usage-fill"></i></div>
+      <span id="usage-text" class="usage-text"></span>
     </div>
 
-    <div id="deck-modal" class="modal-overlay hidden">
-      <div class="modal-card">
-        <h3>🎴 원어민 표현 단어장</h3>
-        <p class="sub-desc">대화하며 수집된 핵심 표현입니다.</p>
-        <div id="deck-card-container" class="deck-card-container"></div>
-        <button id="close-deck-btn" class="modal-btn secondary">닫기</button>
-      </div>
+    <!-- 오늘의 미션 -->
+    <div class="mission-strip">
+      <span class="mission-label">🎯 오늘의 표현</span>
+      <span id="mission-text" class="mission-text"></span>
+      <span id="mission-badge" class="mission-badge">진행 중</span>
     </div>
 
-    <div id="settings-modal" class="modal-overlay hidden">
-      <div class="modal-card">
-        <h3>⚙️ Gemini API 설정</h3>
-        <label class="input-label" for="gemini-key-input">Gemini API Key (선택사항)</label>
-        <input type="password" id="gemini-key-input" class="modal-input" placeholder="API 키를 입력하면 100% 사람 지능으로 대화합니다">
-        <div class="modal-btn-row">
-          <button id="save-settings-btn" class="modal-btn">저장</button>
-          <button id="close-settings-btn" class="modal-btn secondary">취소</button>
-        </div>
+    <!-- 아바타 무대 -->
+    <div class="stage-wrap">
+      <div id="avatar-stage" class="avatar-stage" data-state="idle">
+        <div id="avatar-glow" class="avatar-glow"></div>
+        <!-- 아바타(canvas 또는 video)가 여기에 삽입됩니다 -->
       </div>
+
+      <div id="state-badge" class="state-badge">
+        <i class="state-dot"></i><span id="state-text">대기 중</span>
+      </div>
+
+      <div class="subtitle-box">
+        <p id="subtitle-en" class="subtitle-en"></p>
+        <p id="subtitle-ko" class="subtitle-ko"></p>
+        <button id="translate-button" class="translate-btn" aria-label="한국어로 뜻 보기">
+          🌐 무슨 뜻이야?
+        </button>
+      </div>
+
+      <p id="user-echo" class="user-echo"></p>
+
+      <!-- 선생님이 말하는 동안에만 뜨는 수동 끼어들기 버튼 -->
+      <button id="interrupt-button" class="interrupt-btn" aria-hidden="true"
+              aria-label="선생님 말 끊고 내가 말하기">
+        ✋ 나도 말할래요
+      </button>
+
+      <!-- 문제 진단용 (설정에서 켤 때만 보임) -->
+      <div id="diagnostics" class="diagnostics" style="display:none"></div>
+
+      <!-- 단어 카드 / 교정 카드가 뜨는 층 -->
+      <div id="teaching-layer" class="teaching-layer"></div>
     </div>
 
-    <!-- 오늘의 1분 대화 성취 리포트 모달 -->
-    <div id="report-modal" class="modal-overlay hidden">
-      <div class="modal-card report-card">
-        <h3>📊 오늘의 1분 대화 성취 리포트</h3>
-        <p class="sub-desc">Chloe 선생님과의 오늘 학습 성과 분석</p>
-        
-        <div class="report-grid">
-          <div class="report-stat-card">
-            <div class="stat-icon">💬</div>
-            <div class="stat-value" id="report-total-turns">0</div>
-            <div class="stat-label">총 대화 턴 수</div>
-          </div>
-          <div class="report-stat-card">
-            <div class="stat-icon">💎</div>
-            <div class="stat-value" id="report-native-count">0</div>
-            <div class="stat-label">수집된 원어민 표현</div>
-          </div>
-          <div class="report-stat-card full-width">
-            <div class="stat-icon">🎯</div>
-            <div class="stat-info">
-              <div class="stat-label">오늘의 미션 달성률</div>
-              <div class="stat-progress-bar"><div class="stat-progress-fill" id="report-mission-fill" style="width: 0%;"></div></div>
-              <div class="stat-progress-text" id="report-mission-text">미션 진행 중 🎯</div>
-            </div>
-          </div>
-        </div>
+    <!-- 대화 기록 -->
+    <div id="transcript" class="transcript"></div>
 
-        <div class="report-feedback-box">
-          <h4>👩‍🏫 Chloe 선생님의 1분 피드백</h4>
-          <p id="report-feedback-summary">오늘 선생님과 적극적으로 영어 대화를 이어가셨어요! 멋진 발음과 다양한 표현 시도가 돋보냈습니다.</p>
-        </div>
+    <!-- 컨트롤 -->
+    <div class="controls">
+      <p id="status-line" class="status-line">준비 중...</p>
 
-        <button id="close-report-btn" class="modal-btn secondary">닫기</button>
+      <button id="mic-button" class="mic-button">
+        <span class="mic-ring"></span>
+        <span id="mic-icon" class="mic-icon">🎙️</span>
+        <span id="mic-label" class="mic-label">대화 시작</span>
+        <span class="mic-level-track"><i id="mic-level" class="mic-level"></i></span>
+      </button>
+
+      <div class="text-row">
+        <input id="text-input" type="text" placeholder="말하기 어려우면 여기에 입력해도 돼요"
+               autocomplete="off" enterkeyhint="send">
+        <button id="send-button" class="send-btn">전송</button>
       </div>
+    </div>
+  </section>
+
+  <!-- 토스트 -->
+  <div id="toast-layer" class="toast-layer"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     모달들
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<div id="vocab-modal" class="modal hidden">
+  <div class="modal-card">
+    <header class="modal-head">
+      <h3>🎴 내 단어장 <span id="vocab-count" class="count-chip"></span></h3>
+      <button id="vocab-close" class="icon-btn" aria-label="닫기">×</button>
+    </header>
+    <p class="modal-desc">
+      대화에서 배운 표현이 자동으로 쌓입니다. <b>복습</b> 표시가 붙은 단어는
+      다음 대화에서 선생님이 다시 꺼내줍니다.
+    </p>
+    <button id="quiz-button" class="wide-btn">📝 복습 퀴즈 풀기 (거의 무료)</button>
+    <div id="quiz-area" class="quiz-area hidden"></div>
+    <div id="vocab-list" class="vocab-list"></div>
+  </div>
+</div>
+
+<div id="history-modal" class="modal hidden">
+  <div class="modal-card">
+    <header class="modal-head">
+      <h3 id="history-title">💬 지난 대화</h3>
+      <button id="history-close" class="icon-btn" aria-label="닫기">×</button>
+    </header>
+    <p class="modal-desc">
+      대화가 이상했다면 <b>아래 버튼</b>으로 내보내서 보내주세요.
+      대화 내용과 진단 정보가 함께 담깁니다. (기기 안에서만 만들어집니다)
+    </p>
+    <button id="export-button" class="wide-btn">📤 대화 + 진단 정보 내보내기</button>
+    <div id="history-body" class="history-body"></div>
+  </div>
+</div>
+
+<div id="report-modal" class="modal hidden">
+  <div class="modal-card">
+    <header class="modal-head">
+      <h3>📊 학습 리포트</h3>
+      <button id="report-close" class="icon-btn" aria-label="닫기">×</button>
+    </header>
+    <div id="report-body" class="report-body"></div>
+  </div>
+</div>
+
+<div id="roleplay-modal" class="modal hidden">
+  <div class="modal-card">
+    <header class="modal-head">
+      <h3>🎲 무엇을 하고 놀까요?</h3>
+      <button id="roleplay-close" class="icon-btn" aria-label="닫기">×</button>
+    </header>
+    <p class="modal-desc">
+      아이는 지금 학습 단계에 맞는 말놀이만 보여줍니다.
+      고르면 선생님이 바로 시작해요.
+    </p>
+    <div id="roleplay-grid" class="roleplay-grid"></div>
+  </div>
+</div>
+
+<div id="settings-modal" class="modal hidden">
+  <div class="modal-card">
+    <header class="modal-head">
+      <h3>⚙️ 설정</h3>
+      <button id="settings-close" class="icon-btn" aria-label="닫기">×</button>
+    </header>
+
+    <label class="setting-row">
+      <span class="setting-main">
+        <b>안전 모드 (기본 · 켜두세요)</b>
+        <small>
+          선생님이 말하는 동안 마이크를 닫습니다. 스피커 소리가 마이크로
+          되돌아가 <b>내가 한 말이 두 번 인식되는 것</b>을 막아줍니다.
+          끼어들고 싶을 땐 화면의 <b>✋ 나도 말할래요</b>를 누르면 됩니다.<br>
+          <b>이어폰을 쓸 때만</b> 꺼보세요. 목소리만으로 끼어들 수 있지만,
+          스피커로 들으면서 끄면 말이 겹칩니다.
+        </small>
+      </span>
+      <input id="setting-half-duplex" type="checkbox" class="switch">
+    </label>
+
+    <label class="setting-row">
+      <span class="setting-main">
+        <b>진단 정보 보기</b>
+        <small>
+          대화가 이상할 때 켜세요. 소리가 잡히는지, 말의 끝이 서버에 전달되는지,
+          재연결이 반복되는지 숫자로 보여줍니다.
+        </small>
+      </span>
+      <input id="setting-diagnostics" type="checkbox" class="switch">
+    </label>
+
+    <label class="setting-row">
+      <span class="setting-main">
+        <b>한글 자막 표시</b>
+        <small>선생님이 한국어를 섞어 말하면 그대로 자막에 나옵니다.</small>
+      </span>
+      <input id="setting-korean-sub" type="checkbox" class="switch">
+    </label>
+
+    <label class="setting-row column">
+      <span class="setting-main">
+        <b>아바타 모드</b>
+        <small>
+          <b>3D</b>가 기본입니다 — 무료이면서 고개를 돌리고 눈을 깜빡입니다.<br>
+          <b>사진</b>은 가볍습니다. 오래된 기기에서 3D가 버벅이면 이걸 쓰세요.<br>
+          <b>실사 영상</b>은 훨씬 실감나지만 분당 크레딧이 소모됩니다.
+        </small>
+      </span>
+      <select id="setting-avatar-mode" class="select">
+        <option value="three">3D 아바타 (무료 · 추천)</option>
+        <option value="photo">사진 아바타 (무료 · 가벼움)</option>
+        <option value="video">실사 영상 아바타 (유료)</option>
+      </select>
+    </label>
+
+    <label class="setting-row column" id="avatar-url-setting">
+      <span class="setting-main">
+        <b>3D 아바타 얼굴 바꾸기</b>
+        <small>
+          <a href="https://readyplayer.me/avatar" target="_blank" rel="noopener">readyplayer.me</a>
+          에서 얼굴을 만들고 받은 <b>.glb 주소</b>를 여기 붙여넣으세요.
+          비워두면 기본 선생님 얼굴을 씁니다.
+        </small>
+      </span>
+      <input id="setting-avatar-url" class="select" type="url" inputmode="url"
+             placeholder="https://models.readyplayer.me/....glb">
+    </label>
+
+    <div id="stage-setting" class="setting-block" style="display:none">
+      <div class="setting-main">
+        <b>📚 학습 단계 (부모용)</b>
+        <small>
+          평소에는 선생님이 아이 수준을 보고 알아서 조정합니다.
+          여기서 직접 바꿀 수도 있어요. 아이에게는 단계가 보이지 않습니다.
+        </small>
+      </div>
+      <div id="stage-ladder" class="stage-ladder"></div>
+      <p id="stage-history" class="stage-history"></p>
+    </div>
+
+    <label class="setting-row column">
+      <span class="setting-main">
+        <b>영어 글자를 읽을 수 있나요?</b>
+        <small>
+          못 읽으면 카드를 글자 대신 <b>그림과 소리</b>로 보여주고,
+          글자를 읽으라고 시키지 않습니다.
+        </small>
+      </span>
+      <select id="setting-can-read" class="select">
+        <option value="true">읽을 수 있어요</option>
+        <option value="partial">쉬운 단어만 읽어요</option>
+        <option value="false">아직 못 읽어요</option>
+      </select>
+    </label>
+
+    <div class="setting-note">
+      <b>💰 요금이 절약되는 방식</b>
+      <ul>
+        <li>말하지 않는 동안은 오디오를 서버로 보내지 않습니다.</li>
+        <li>약 75초간 조용하면 연결을 끊고, 다시 말하면 대화를 이어붙입니다.</li>
+        <li>가족별 하루 사용 한도가 걸려 있습니다 (아이는 8~15분).</li>
+      </ul>
     </div>
   </div>
+</div>
 
-  <script src="app.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>
