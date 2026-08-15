@@ -61,6 +61,16 @@ async function loadSdk() {
 const CONNECT_TIMEOUT_MS = 15_000;
  
 /**
+ * 설정 사다리 한 칸당 제한시간.
+ *
+ * 짧게 잡는 이유: 설정이 거부되면 SDK 는 오류를 안 내고 그냥 멈춥니다.
+ * 그 멈춤을 "이 설정은 안 된다"로 보고 다음 칸으로 내려가야 하는데,
+ * 한 칸에 15초씩 쓰면 사다리를 다 타는 데 1분 반이 걸립니다.
+ * 정상 연결은 보통 1~2초면 됩니다. 7초면 넉넉합니다.
+ */
+const RUNG_TIMEOUT_MS = 7_000;
+ 
+/**
  * 절대 끝나지 않을 수 있는 약속에 시간 제한을 겁니다.
  *
  * Gemini SDK의 live.connect()는 setupComplete를 기다리는데, 소켓이 그 전에
@@ -307,19 +317,25 @@ export class LiveSession {
     /* 한 번 성공한 단계는 기억해서, 다음 접속부터는 곧바로 그 단계로 갑니다.
        (매번 실패부터 시작하면 접속이 느려집니다)                        */
     const startAt = LiveSession._workingRung ?? 0;
-    const config = LADDER[startAt].strip(baseConfig);
  
     // 이 소켓의 세대 번호. 콜백은 자기 세대일 때만 동작합니다.
     const gen = ++this._connGen;
     const isCurrent = () => gen === this._connGen;
  
     try {
-      // ⚠️ SDK의 live.connect()는 setupComplete를 기다리는데, 그 약속은
-      //    소켓이 그 전에 죽어도 **영원히 resolve/reject 되지 않습니다**.
-      //    (만료된 토큰, 1007 설정 거부, 핸드셰이크 중 네트워크 끊김)
-      //    그대로 두면 app.js의 reconnecting 플래그가 영구히 true로 남아
-      //    통화가 끝날 때까지 다시는 연결되지 않습니다. 반드시 타임아웃을 겁니다.
-      const session = await withTimeout(this._connectWithLadder(ai, LADDER, baseConfig, startAt, {
+      /* ⚠️ 타임아웃은 **사다리 한 칸마다** 겁니다. 전체에 한 번 거는 게
+       *    아닙니다.
+       *
+       *    이유: SDK의 live.connect()는 서버가 설정을 거부하고 소켓을
+       *    닫아버리면 **오류를 내지 않고 영원히 멈춰 있습니다.**
+       *    (그래서 예전에 "서버 응답이 없어 연결을 포기했습니다 (15초)"만
+       *     떴습니다 — 실제로는 설정이 거부된 것인데 그걸 알 수가 없었습니다)
+       *
+       *    전체에 타임아웃을 걸면 첫 칸에서 멈춘 채 15초를 다 쓰고 끝나서,
+       *    사다리가 두 번째 칸으로 **영영 못 내려갑니다.**
+       *    한 칸마다 걸어야 "이 칸은 안 되는구나" 하고 다음으로 갑니다.
+       */
+      const session = await this._connectWithLadder(ai, LADDER, baseConfig, startAt, {
           onopen: () => {
             if (!isCurrent()) return;
             this._reconnectAttempts = 0;
@@ -350,9 +366,7 @@ export class LiveSession {
               this._setState(LiveState.IDLE, { reason: event?.reason });
             }
           },
-        }), CONNECT_TIMEOUT_MS, '서버 응답이 없어 연결을 포기했습니다 (15초)',
-        // 타임아웃 후 뒤늦게 열린 소켓은 주인이 없으므로 닫아줍니다 (계속 과금 방지)
-        (late) => { try { late.close(); } catch {} });
+        });
  
       // 연결하는 동안 사용자가 통화를 끊었거나 다른 세션이 시작됐다면
       // 이 소켓은 주인이 없습니다. 그냥 두면 요금이 계속 나갑니다.
@@ -387,12 +401,23 @@ export class LiveSession {
     for (let i = startAt; i < ladder.length; i++) {
       const rung = ladder[i];
       const cfg = rung.strip(baseConfig);
+ 
+      // 진행 상황을 화면에 알려줍니다. 말없이 멈춰 있으면 고장난 줄 압니다.
+      if (i > startAt) {
+        this.h.onLadderStep?.(`설정을 맞춰보는 중… (${i + 1}/${ladder.length})`);
+      }
+ 
       try {
-        const session = await ai.live.connect({
-          model: this.model,
-          config: cfg,
-          callbacks,
-        });
+        /* 한 칸당 제한시간.
+           설정이 거부되면 SDK가 오류 대신 **멈춰 있으므로**, 멈춤도
+           "이 설정은 안 된다"는 신호로 봅니다. */
+        const session = await withTimeout(
+          ai.live.connect({ model: this.model, config: cfg, callbacks }),
+          RUNG_TIMEOUT_MS,
+          `설정이 거부된 것 같습니다 (${rung.label}, ${RUNG_TIMEOUT_MS / 1000}초 무응답)`,
+          // 뒤늦게 열린 소켓은 주인이 없으므로 닫습니다 (계속 과금 방지)
+          (late) => { try { late.close(); } catch {} }
+        );
  
         // 성공. 이 단계를 기억해서 다음 접속은 곧바로 여기서 시작합니다.
         if (LiveSession._workingRung !== i) {
@@ -409,12 +434,18 @@ export class LiveSession {
       } catch (err) {
         lastErr = err;
         const raw = String(err?.message || err);
+ 
+        /* "설정이 문제일 수 있는" 신호들.
+           무응답(타임아웃)도 포함합니다 — 설정이 거부되면 SDK가 오류를
+           안 내고 그냥 멈추기 때문입니다. 이게 이 사다리의 핵심입니다. */
         const isConfigRejection =
-          /INVALID_ARGUMENT|field_mask|1007|invalid/i.test(raw);
+          /INVALID_ARGUMENT|field_mask|1007|invalid|무응답|거부된 것 같습니다/i.test(raw);
  
-        if (!isConfigRejection) throw err;   // 설정 문제가 아니면 바로 포기
+        // 인증 실패는 설정과 무관하므로 사다리를 타봐야 소용없습니다
+        if (/401|403|UNAUTHENTICATED|PERMISSION|만료/i.test(raw)) throw err;
+        if (!isConfigRejection) throw err;
  
-        console.warn(`[live] 설정 거부됨 (${rung.label}) → 다음 단계 시도: ${raw.slice(0, 160)}`);
+        console.warn(`[live] ${rung.label} 실패 → 다음 단계 시도: ${raw.slice(0, 160)}`);
       }
     }
  
@@ -664,3 +695,4 @@ export class LiveSession {
     return this.state === LiveState.LIVE && !!this.session;
   }
 }
+ 
