@@ -1,3 +1,4 @@
+
 /**
  * api/live-token.js
  * ----------------------------------------------------------------------------
@@ -19,14 +20,14 @@
  *   이어붙일 때 handle을 넘겨야 하기 때문입니다.
  * ----------------------------------------------------------------------------
  */
-
+ 
 'use strict';
-
+ 
 const { GoogleGenAI } = require('@google/genai');
 const { guard } = require('./_guard');
 const { FAMILY_PROFILES, buildLiveConfig, endOfSpeechMs } = require('./_persona');
 const { CHILD_STAGES, getStage } = require('./_stages');
-
+ 
 /**
  * 브라우저가 보낸 학습 컨텍스트를 정화합니다.
  * 이 값들은 시스템 프롬프트에 들어가므로 프롬프트 인젝션 표면입니다.
@@ -37,7 +38,7 @@ function sanitizeContext(raw) {
     typeof s === 'string'
       ? s.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
       : '';
-
+ 
   const knownWords = Array.isArray(raw?.knownWords)
     ? raw.knownWords
         .filter((w) => typeof w === 'string')
@@ -45,7 +46,7 @@ function sanitizeContext(raw) {
         .filter(Boolean)
         .slice(0, 60)
     : [];
-
+ 
   return {
     recentSummary: clean(raw?.recentSummary, 600),
     todayMission: clean(raw?.todayMission, 120),
@@ -64,10 +65,10 @@ function sanitizeContext(raw) {
       : undefined,
   };
 }
-
+ 
 module.exports = async function handler(req, res) {
   if (!guard(req, res)) return;
-
+ 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     /* ⚠️ 이 화면 문구가 이 앱에서 가장 중요한 오류 메시지입니다.
@@ -93,7 +94,7 @@ module.exports = async function handler(req, res) {
         'Google AI Studio 에서 키를 다시 복사해 넣고 Redeploy 해주세요.',
     });
   }
-
+ 
   // ── 프로필은 서버가 결정합니다. 브라우저는 id만 고를 수 있습니다. ──────
   const profileId = String(req.body?.profileId || '');
   const profile = FAMILY_PROFILES[profileId];
@@ -103,19 +104,19 @@ module.exports = async function handler(req, res) {
       message: `알 수 없는 프로필입니다: ${profileId}`,
     });
   }
-
+ 
   const context = sanitizeContext(req.body?.context);
   const model = process.env.GEMINI_LIVE_MODEL || 'gemini-3.1-flash-live-preview';
-
+ 
   try {
     // ephemeral token은 v1alpha에서만 지원됩니다.
     const ai = new GoogleGenAI({
       apiKey,
       httpOptions: { apiVersion: 'v1alpha' },
     });
-
+ 
     const config = buildLiveConfig(profile, context);
-
+ 
     const now = Date.now();
     const token = await ai.authTokens.create({
       config: {
@@ -125,25 +126,42 @@ module.exports = async function handler(req, res) {
         newSessionExpireTime: new Date(now + 2 * 60 * 1000).toISOString(),
         // 세션 자체의 최대 수명: 60분
         expireTime: new Date(now + 60 * 60 * 1000).toISOString(),
-
-        // ⭐ 보안의 핵심: 모델·프롬프트·도구를 서버에서 못박습니다.
-        liveConnectConstraints: {
-          model,
-          config,
-        },
-        // constraints에 명시한 필드만 잠급니다.
-        // (sessionResumption은 잠기지 않으므로 클라이언트가 재접속 handle을 넘길 수 있음)
-        lockAdditionalFields: [],
+ 
+        /* ⭐ 모델만 못박습니다.
+         *
+         * ⚠️ 예전에는 여기에 config 전체를 넣고 lockAdditionalFields: [] 를
+         *    썼습니다. 그랬더니 실제 접속에서 이 오류가 났습니다.
+         *
+         *      {"code":400,"message":"field_mask is invalid for
+         *       BidiGenerateContentSetup","status":"INVALID_ARGUMENT"}
+         *
+         *    구글은 constraints 의 config 를 **필드 마스크**로 바꿔서 잠그는데,
+         *    그 안에 setup 메시지에 없는 필드가 하나라도 있으면 마스크 자체가
+         *    무효가 되어 **연결이 통째로 거부**됩니다. 어느 필드가 문제인지는
+         *    오류에 안 나옵니다.
+         *
+         *    그래서 config 는 잠그지 않고 아래 응답으로 내려보내, 클라이언트가
+         *    setup 프레임에 실어 보냅니다. 그러면 문제가 있는 필드가 있을 때
+         *    **그 필드 이름이 찍힌** 오류가 나서 원인을 알 수 있습니다.
+         *
+         *    보안상 맞바꾼 것: 시스템 프롬프트가 브라우저에서 보입니다.
+         *    가족만 쓰는 앱이라 감수합니다. 모델은 여전히 잠겨 있어서
+         *    이 토큰으로 다른(비싼) 모델을 쓸 수는 없습니다.
+         */
+        liveConnectConstraints: { model },
       },
     });
-
+ 
     if (!token?.name) {
       throw new Error('토큰 발급 응답에 name이 없습니다');
     }
-
+ 
     return res.status(200).json({
       token: token.name,
       model,
+      /* 이제 setup 설정을 클라이언트가 보냅니다.
+         (프롬프트·도구·음성 모두 여전히 서버가 만든 그대로입니다) */
+      config,
       // 서버 자동 VAD를 껐으므로, 말의 끝은 클라이언트가 판단합니다.
       // 그 기준 시간을 여기서 내려줍니다 (4살은 길게, 어른은 짧게).
       endOfSpeechMs: endOfSpeechMs(profile, context),
@@ -168,7 +186,7 @@ module.exports = async function handler(req, res) {
   } catch (err) {
     console.error('[live-token] 발급 실패:', err);
     const message = String(err?.message || err);
-
+ 
     // 자주 나오는 오류를 사람이 읽을 수 있는 안내로 바꿔줍니다.
     let hint = '';
     if (/allowlist|permission|PERMISSION_DENIED|not found|NOT_FOUND/i.test(message)) {
@@ -180,10 +198,11 @@ module.exports = async function handler(req, res) {
     } else if (/quota|RESOURCE_EXHAUSTED|429/i.test(message)) {
       hint = 'API 사용량 한도에 걸렸습니다. 잠시 후 다시 시도해 주세요.';
     }
-
+ 
     return res.status(502).json({
       error: 'token_creation_failed',
       message: hint || message,
     });
   }
 };
+ 
