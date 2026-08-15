@@ -14,7 +14,7 @@
  *   사용자 입장에서는 "항상 켜져 있는" 느낌인데 요금은 말한 시간만 나갑니다.
  * ----------------------------------------------------------------------------
  */
-
+ 
 import {
   PROFILES, COST, AVATAR_MODE, DAILY_MISSIONS, ADULT_SCENARIOS,
   CHILD_STAGES, CHILD_GAMES, AUDIO, APP_VERSION,
@@ -36,21 +36,21 @@ import {
   appendMessage, listRecentConversations, pruneOldMessages,
 } from './src/storage.js';
 import { buildReportText, downloadText, copyText } from './src/report-export.js';
-
+ 
 /* ═══════════════════════════════════════════════════════════════════════════
    앱 상태
    ═══════════════════════════════════════════════════════════════════════════ */
-
+ 
 const app = {
   settings: loadSettings(),
   usage: new UsageMeter(),
-
+ 
   profile: null,
   mic: null,
   player: null,
   live: null,
   avatar: null,
-
+ 
   /** 통화 중인지 (사용자가 시작했는지) */
   inCall: false,
   /** 재연결 진행 중 (중복 연결 방지) */
@@ -66,7 +66,7 @@ const app = {
   resumeBlockedReason: null,
   /** 재연결 동안 잠시 담아두는 오디오 프레임 */
   pendingFrames: [],
-
+ 
   /**
    * 끼어든 직후, 이미 날아오고 있던 선생님 음성을 버리는 기간(타임스탬프).
    *
@@ -78,7 +78,7 @@ const app = {
    * 서버가 interrupted / turnComplete 를 보내주면 즉시 해제됩니다.
    */
   bargeGuardUntil: 0,
-
+ 
   /** 마지막으로 확정된 "내 말" (같은 말이 두 번 찍히는 걸 막습니다) */
   lastUserFinal: null,
   /** 선생님이 **지금 말하고 있는** 문장 (스피커 되돌림 판별용) */
@@ -87,7 +87,7 @@ const app = {
   echoHits: 0,
   /** 통화 시작이 진행 중 (두 번 눌림 방지) */
   starting: false,
-
+ 
   idleTimer: null,
   mission: { text: '', done: false },
   /** 이번 통화 식별자 (대화 기록을 묶는 값) */
@@ -96,7 +96,7 @@ const app = {
   stage: null,
   /** 단계가 바뀌어서 다음 턴에 세션을 새로 열어야 하는지 */
   pendingStageReconnect: false,
-
+ 
   /**
    * 진단 정보.
    * 실제 통화가 이상할 때 무엇이 잘못됐는지 알려면 이 숫자들이 필요합니다.
@@ -125,7 +125,7 @@ const app = {
   lastTeacherLine: '',
   /** 이번 통화에서 이미 카드로 띄운 표현 (같은 걸 반복해서 띄우지 않게) */
   seenKeywords: new Set(),
-
+ 
   session: {
     startedAt: 0,
     /** 세션 시작 시점의 오늘 누적 사용량 (세션 분량 계산용) */
@@ -138,11 +138,11 @@ const app = {
     frames: [],
   },
 };
-
+ 
 /* ═══════════════════════════════════════════════════════════════════════════
    시작
    ═══════════════════════════════════════════════════════════════════════════ */
-
+ 
 function boot() {
   UI.initUi();
   const v = document.getElementById('app-version');
@@ -152,7 +152,7 @@ function boot() {
   renderProfileScreen();
   wireGlobalControls();
   UI.showScreen('profile');
-
+ 
   // 저장돼 있던 "안전 모드"를 자동으로 껐다면 반드시 알려줍니다.
   // 조용히 바꿔놓으면, 에코 때문에 일부러 켜뒀던 분은 이유도 모른 채
   // 소리가 울리기 시작합니다.
@@ -166,7 +166,7 @@ function boot() {
     );
   }
 }
-
+ 
 function renderProfileScreen() {
   UI.renderProfiles(PROFILES, {
     usageOf: (id) => ({
@@ -177,7 +177,7 @@ function renderProfileScreen() {
     onSelect: (profile) => startCall(profile).catch(handleFatal),
   });
 }
-
+ 
 /**
  * 놀이/상황 목록.
  * 아이는 지금 단계에 맞는 말놀이만 보여줍니다 —
@@ -186,7 +186,7 @@ function renderProfileScreen() {
 function renderGameList() {
   const isChild = app.stage !== null;
   const items = isChild ? (CHILD_GAMES[app.stage] || []) : ADULT_SCENARIOS;
-
+ 
   UI.renderRoleplay(items, {
     onSelect: (item) => {
       UI.closeModal('roleplay-modal');
@@ -194,24 +194,24 @@ function renderGameList() {
         UI.toast('먼저 대화를 시작해 주세요.', { variant: 'warn' });
         return;
       }
-
+ 
       // 텍스트 한 줄만 넣어주면 됩니다 (음성 토큰 소모 없음)
       const prompt = isChild
         ? `[놀이 시작] 지금부터 "${item.title}" 놀이를 하자. ${item.desc}. ` +
           `${app.stage}단계 규칙을 그대로 지키면서, 짧게 한마디로 시작해줘.`
         : `[상황 설정] 지금부터 "${item.title}" 상황으로 역할극을 시작하자. ` +
           `${item.desc}. 너가 상대 역할을 맡고, 짧게 첫 대사를 던져줘.`;
-
+ 
       sendTextToTeacher(prompt, { echo: false });
       UI.toast(`${item.title} 시작!`, { variant: 'success' });
     },
   });
 }
-
+ 
 /* ═══════════════════════════════════════════════════════════════════════════
    통화 시작 / 종료
    ═══════════════════════════════════════════════════════════════════════════ */
-
+ 
 async function startCall(profile) {
   // 두 번 눌리면(두 번 탭, 더블클릭) 마이크와 세션이 **두 벌** 생깁니다.
   // 그러면 같은 목소리가 두 번 전송되어 인식도 두 번 됩니다.
@@ -229,7 +229,7 @@ async function startCall(profile) {
     app.starting = false;
   }
 }
-
+ 
 async function startCallInner(profile) {
   app.profile = profile;
   app.inCall = true;
@@ -257,7 +257,7 @@ async function startCallInner(profile) {
     startUsageMin: app.usage.todayMinutes(profile.id),
     turns: 0, newWords: [], highlights: [], topics: [], frames: [],
   };
-
+ 
   UI.showScreen('call');
   UI.setActiveProfile(profile);
   UI.setStageChip(app.stage !== null ? CHILD_STAGES[app.stage] : null);
@@ -275,9 +275,9 @@ async function startCallInner(profile) {
   // 프로필을 막 바꿨으므로 throttle을 무시하고 즉시 갱신합니다
   // (안 그러면 직전 아이의 사용량이 잠깐 그대로 보입니다)
   refreshUsageUi({ force: true });
-
+ 
   pickMission(profile);
-
+ 
   // ── 1. 오디오 재생기 ──────────────────────────────────────────────
   app.player = new AudioPlayer({
     onSpeakingChange: (speaking) => {
@@ -294,7 +294,7 @@ async function startCallInner(profile) {
     },
   });
   await app.player.init();
-
+ 
   // ── 2. 아바타 ────────────────────────────────────────────────────
   app.avatar = new AvatarManager({
     container: UI.refs()['avatar-stage'],
@@ -330,7 +330,7 @@ async function startCallInner(profile) {
       variant: 'warn', ttlMs: 7000,
     });
   }
-
+ 
   // ── 3. Live 세션 ─────────────────────────────────────────────────
   app.live = new LiveSession({
     // 말의 시작과 끝을 서버에 직접 알립니다.
@@ -341,6 +341,12 @@ async function startCallInner(profile) {
       // 자동 검사에서 확인할 수 있게 남겨둡니다 (동작에는 영향 없음)
       window.__eosApplied = ms;
     },
+ 
+    /* 설정 사다리를 타는 중이라는 걸 화면에 보여줍니다.
+       아무 말 없이 몇 초씩 멈춰 있으면 고장난 줄 아시기 때문입니다. */
+    onLadderStep: (text) => {
+      UI.setStatus(text);
+    },
     onAudio: handleTeacherAudio,
     onUserText: handleUserText,
     onTeacherText: handleTeacherText,
@@ -349,7 +355,7 @@ async function startCallInner(profile) {
     onTurnComplete: handleTurnComplete,
     onState: handleLiveState,
   });
-
+ 
   // ── 4. 마이크 ────────────────────────────────────────────────────
   app.mic = new MicStream({
     onActivity: (kind) => {
@@ -358,7 +364,7 @@ async function startCallInner(profile) {
       if (kind === 'start') {
         if (app.live?.sendActivityStart()) app.diag.activityStart++;
         if (app.player?.speaking) app.diag.startsWhileTeacher++;
-
+ 
         // 선생님이 말하는 중에 사람이 말을 시작했다 = 끼어들기.
         // (이 신호는 MIN_UTTERANCE_MS 만큼 확인된 "진짜 말"일 때만 옵니다.
         //  문 닫는 소리로는 여기까지 오지 않습니다)
@@ -387,7 +393,7 @@ async function startCallInner(profile) {
   //    (아바타는 마이크보다 먼저 붙기 때문에 mount 중의 onModeChange 는
   //     app.mic 이 아직 null 이라 그냥 지나갑니다. 그래서 여기서 한 번 더 겁니다)
   applyDuckRelease(app.avatar?.mode ?? app.settings.avatarMode);
-
+ 
   // 자동 검사용 훅 (동작에는 영향 없음)
   window.__forceActivityStart = () => app.live?.sendActivityStart();
   window.__forceActivityEnd = () => app.live?.sendActivityEnd();
@@ -408,7 +414,7 @@ async function startCallInner(profile) {
     duck: app.mic?.gate?.duckFactor ?? null,
     speaking: !!app.mic?.isSpeaking(),
   });
-
+ 
   try {
     await app.mic.start();
   } catch (err) {
@@ -424,40 +430,40 @@ async function startCallInner(profile) {
     await endCall();
     return;
   }
-
+ 
   // ── 5. 연결 ──────────────────────────────────────────────────────
   await connectLive();
   // 서버가 알려준 값이 있으면 마이크에 반영 (연결이 마이크보다 늦게 끝남)
   if (app.diag.endOfSpeechMs) app.mic?.setEndOfSpeechMs(app.diag.endOfSpeechMs);
-
+ 
   // 연결 도중 사용자가 나갔으면(뒤로가기) 여기서 멈춥니다.
   // 안 그러면 세션 수가 부풀고, 주인 없는 3초 감시 타이머가 남습니다.
   if (!app.inCall) return;
-
+ 
   // 연결이 끝나기 전에 이미 말을 시작했을 수 있습니다 (마이크가 먼저 켜짐).
   // 그 첫 마디를 새 세션에 이어붙입니다.
   flushPendingAudio();
-
+ 
   app.usage.addSession(profile.id);
   startIdleWatch();
 }
-
+ 
 /** Live 세션 연결 (첫 연결 및 재연결 공통) */
 async function connectLive() {
   const profile = app.profile;
   if (!profile || !app.live) return;
-
+ 
   const [dueWords, allWords, recentSummary] = await Promise.all([
     listDueVocabulary(profile.id, 12),
     listVocabulary(profile.id, { limit: 60 }),
     buildRecentSummary(profile.id),
   ]);
-
+ 
   // 복습할 단어를 앞에 놓아 선생님이 우선적으로 다시 등장시키게 합니다
   const knownWords = [...dueWords.map((v) => v.word), ...allWords.map((v) => v.word)]
     .filter((w, i, arr) => arr.indexOf(w) === i)
     .slice(0, 60);
-
+ 
   await app.live.connect(profile.id, {
     recentSummary,
     knownWords,
@@ -477,33 +483,33 @@ async function connectLive() {
       : {}),
   });
 }
-
+ 
 async function endCall({ backToProfiles = true } = {}) {
   stopIdleWatch();
   app.inCall = false;
-
+ 
   await saveSessionSummary();
-
+ 
   await app.live?.disconnect({ keepContext: false });
   await app.mic?.stop();
   await app.player?.close();
   await app.avatar?.unmount();
-
+ 
   app.lastTeacherLine = '';
   app.live = null;
   app.mic = null;
   app.player = null;
   app.avatar = null;
   app.pendingFrames = [];
-
+ 
   app.usage.flush();
-
+ 
   if (backToProfiles) {
     renderProfileScreen();
     UI.showScreen('profile');
   }
 }
-
+ 
 async function saveSessionSummary() {
   if (!app.profile || !app.session.startedAt || app.session.turns === 0) return;
   try {
@@ -526,35 +532,35 @@ async function saveSessionSummary() {
     console.warn('[app] 세션 요약 저장 실패', err);
   }
 }
-
+ 
 /* ═══════════════════════════════════════════════════════════════════════════
    오디오 흐름
    ═══════════════════════════════════════════════════════════════════════════ */
-
+ 
 /** 마이크 프레임 → 서버. 유휴로 끊겨 있으면 되살립니다. */
 function handleMicFrame(base64) {
   if (!app.inCall) return;
   app.diag.framesSent++;
-
+ 
   // 화면이 안 보이는 상태(다른 탭/앱)에서는 생활소음으로 재연결되지 않게 막습니다.
   // 이게 없으면 숨겨둔 탭이 혼자 다시 연결해서 요금을 씁니다.
   if (document.hidden) return;
-
+ 
   if (app.live?.isLive) {
     app.live.sendAudio(base64);
     return;
   }
-
+ 
   // 끊긴 상태에서 다시 말을 시작함 → 조용히 이어붙입니다
   app.pendingFrames.push(base64);
   // 최근 2초분만 유지 (무한정 쌓이지 않게)
   const frameMs = (AUDIO.FRAME_SAMPLES / AUDIO.INPUT_SAMPLE_RATE) * 1000;
   const maxFrames = Math.ceil(2000 / frameMs);
   while (app.pendingFrames.length > maxFrames) app.pendingFrames.shift();
-
+ 
   void resumeLive();
 }
-
+ 
 /**
  * 새 세션이 열린 직후 호출합니다.
  *
@@ -567,7 +573,7 @@ function handleMicFrame(base64) {
  */
 function flushPendingAudio() {
   if (!app.inCall || !app.live?.isLive) return;
-
+ 
   const frames = app.pendingFrames;
   app.pendingFrames = [];
   if (!frames.length) {
@@ -575,7 +581,7 @@ function flushPendingAudio() {
     if (app.mic?.isSpeaking() && app.live.sendActivityStart()) app.diag.activityStart++;
     return;
   }
-
+ 
   // ⚠️ 여기서 activityStart 를 조건부로 보내면 안 됩니다.
   //    재연결이 2.4초(SILENCE_TAIL_MS)보다 오래 걸리면 게이트는 이미 닫혀서
   //    isSpeaking()이 false 입니다. 그런데 모아둔 오디오는 그대로 보내면
@@ -590,11 +596,11 @@ function flushPendingAudio() {
     if (app.live.sendActivityEnd()) app.diag.activityEnd++;
   }
 }
-
+ 
 async function resumeLive() {
   if (app.reconnecting || !app.inCall || !app.live) return;
   if (app.live.state === LiveState.CONNECTING) return;
-
+ 
   /* ⚠️ 백오프.
      resumeLive() 는 마이크 오디오 프레임 핸들러에서도 불립니다 —
      초당 수십 번입니다. 실패한 직후 곧바로 다시 부르면 토큰 발급을
@@ -603,7 +609,7 @@ async function resumeLive() {
      실패할수록 간격을 늘리고, 설정 오류면 아예 멈춥니다.            */
   if (app.resumeBlockedReason) return;
   if (app.resumeBackoffUntil && Date.now() < app.resumeBackoffUntil) return;
-
+ 
   // 대화 중에 하루 한도를 넘으면 여기서 멈춥니다
   if (app.usage.isExhausted(app.profile.id)) {
     UI.setStatus('오늘 목표를 다 채웠어요! 🎉');
@@ -613,10 +619,10 @@ async function resumeLive() {
     await endCall();
     return;
   }
-
+ 
   app.reconnecting = true;
   UI.setStatus('선생님을 다시 부르고 있어요...');
-
+ 
   try {
     await connectLive();
     // 연결하는 동안 사용자가 통화를 끊었을 수 있습니다 (app.live가 null이 됨)
@@ -632,7 +638,7 @@ async function resumeLive() {
   } catch (err) {
     console.error('[app] 재연결 실패', err);
     app.resumeFailStreak = (app.resumeFailStreak || 0) + 1;
-
+ 
     if (err?.permanent) {
       /* 설정 문제입니다. 다시 시도해봐야 똑같습니다.
          재시도를 완전히 멈추고, 원인을 그대로 보여줍니다.
@@ -656,24 +662,24 @@ async function resumeLive() {
     app.reconnecting = false;
   }
 }
-
+ 
 /** 선생님 음성 조각 도착 */
 function handleTeacherAudio(pcm16) {
   // 요금 계산용: 받은 오디오 길이 (버리더라도 서버는 이미 만들었으므로 집계합니다)
   app.usage.addAudioOut(app.profile.id, (pcm16.length / AUDIO.OUTPUT_SAMPLE_RATE) * 1000);
   refreshUsageUi();
-
+ 
   // 방금 끼어들었다면, 이미 날아오고 있던 조각은 재생하지 않고 버립니다.
   // (재생하면 끼어들었는데도 선생님이 계속 말하고, duck 이 다시 걸립니다)
   if (app.bargeGuardUntil && Date.now() < app.bargeGuardUntil) return;
   app.bargeGuardUntil = 0;
-
+ 
   // 영상 아바타 모드면 Simli가 소리까지 내주고, 사진 모드면 우리가 재생합니다.
   // player는 어느 쪽이든 타이밍/립싱크 추적용으로 계속 돌립니다.
   app.avatar?.pushAudio(pcm16);
   app.player?.push(pcm16);
 }
-
+ 
 /** 사용자가 끼어들었음 → 예약된 음성 전부 폐기 */
 function handleInterrupted() {
   app.diag.interrupts++;
@@ -684,7 +690,7 @@ function handleInterrupted() {
   UI.setTeacherSubtitle('');
   UI.setInterruptVisible(false);
 }
-
+ 
 /**
  * 사람이 말을 시작해서 선생님 말을 끊는 순간에 하는 일.
  *
@@ -698,14 +704,14 @@ function applyDuckRelease(mode) {
   const ms = COST.DUCK_RELEASE_MS?.[mode] ?? COST.DUCK_RELEASE_MS?.photo ?? 150;
   app.mic?.setDuckReleaseMs(ms);
 }
-
+ 
 function beginBarge() {
   app.bargeGuardUntil = Date.now() + COST.BARGE_GUARD_MS;
   app.player?.flush();
   app.avatar?.interrupt();
   UI.setInterruptVisible(false);
 }
-
+ 
 /**
  * 사용자가 ✋ 버튼으로 직접 끼어들었을 때.
  *
@@ -715,18 +721,18 @@ function beginBarge() {
  */
 function interruptTeacher() {
   app.diag.interrupts++;
-
+ 
   // 1) 재생 대기 중인 음성을 버리고, 뒤늦게 오는 조각도 잠시 버립니다
   beginBarge();
   UI.setTeacherSubtitle('');
   UI.setKoreanSubtitle('');
-
+ 
   // 2) 마이크를 즉시 엽니다.
   //    forceSpeak()는 억제와 문턱을 풀고, 게이트가 닫혀 있었다면 열면서
   //    onActivity('start')로 "말 시작"까지 알립니다(= 아래 3은 건너뜁니다).
   app.mic?.setTeacherSpeaking(false, 'barge');
   const opened = app.mic?.forceSpeak();
-
+ 
   // 3) 이미 열려 있어서 forceSpeak가 아무것도 안 했다면, 서버 쪽 발화 구간이
   //    정말로 열려 있는지 한 번 더 확인합니다. 게이트는 열려 있는데 그 사이
   //    세션이 새로 연결됐다면 서버는 발화가 시작된 걸 모릅니다. 그러면 지금
@@ -734,22 +740,22 @@ function interruptTeacher() {
   //    (forceSpeak가 이미 보냈을 때 또 세면 진단 숫자의 start/end 짝이
   //     어긋나서, 정작 진짜 어긋남을 찾을 때 못 알아봅니다)
   if (!opened && app.live?.sendActivityStart()) app.diag.activityStart++;
-
+ 
   UI.setStatus('말씀하세요. 듣고 있어요.');
   UI.setAvatarState('listening');
   app.avatar?.setState('listening');
   updateDiagnostics({ force: true });
 }
-
+ 
 /* ═══════════════════════════════════════════════════════════════════════════
    자막 · 대화 기록
    ═══════════════════════════════════════════════════════════════════════════ */
-
+ 
 /** 비교용 정규화 — 대소문자, 문장부호, 띄어쓰기 차이는 무시합니다 */
 function normalizeForCompare(text) {
   return String(text || '').toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
 }
-
+ 
 /**
  * 두 문장이 사실상 같은 말인지.
  * 한쪽이 다른 쪽을 통째로 품고 있으면 같은 말로 봅니다
@@ -764,22 +770,22 @@ function looksLikeSameUtterance(a, b) {
   if (short.length < 4) return false;
   return long.includes(short) && short.length / long.length >= 0.6;
 }
-
+ 
 function handleUserText(text, final) {
   UI.setUserEcho(text, final);
   if (!final) return;
-
+ 
   /* ── 1. 선생님 목소리가 마이크로 되돌아온 흔적인가? ──────────────────
      이 앱의 선생님은 **일부러 아이 말을 따라 말합니다**
      (아이: "Dog!" → 선생님: "Big dog!"). 스피커로 들으면 그 소리가 마이크로
      되돌아가 아이가 두 번 말한 것처럼 기록됩니다.
-
+ 
      ⚠️ 그렇다고 여기서 **지우지는 않습니다.**
         지우려면 "이건 사람이 아니다"를 확신해야 하는데, 소리 크기로도
         글자로도 확신할 수 없었습니다. 글자로 지웠더니 선생님을 따라 말한
         아이의 연습이 사라졌고, 소리 크기로 지웠더니 조용한 아이가 사라졌습니다.
         **아이 말을 지우는 건 어떤 경우에도 감수할 수 없는 대가입니다.**
-
+ 
         그래서 세어두고 알려주기만 합니다. 원인은 안전 모드(기본값)가
         이미 막고 있고, 끼어들기 모드를 직접 켜신 경우에만 이 경로가 열립니다.  */
   const teacherOnAir = !!app.player?.speaking || Date.now() < app.bargeGuardUntil;
@@ -791,12 +797,12 @@ function handleUserText(text, final) {
     noteEchoDetected();
     // 지우지 않고 그대로 아래로 내려갑니다
   }
-
+ 
   /* ⚠️ 합치는 조건은 아주 좁아야 합니다.
         아이가 **일부러 같은 말을 두 번** 하는 건 이 앱에서 흔한 연습이고,
         "I want juice" 와 "I want juice please" 는 서로 **다른 말**입니다.
         그런 걸 합치면 아이가 한 말이 화면에서도 기록에서도 사라집니다.
-
+ 
         진짜 중복은 하나의 발화에 대해 인식 결과가 두 번 확정된 경우이고,
         그건 2.5초 안에, 글자가 똑같거나 앞부분이 그대로 이어진 형태로
         나타납니다. 딱 그 경우만 합칩니다.                                  */
@@ -805,7 +811,7 @@ function handleUserText(text, final) {
   const a = prev ? normalizeForCompare(prev.text) : '';
   const b = normalizeForCompare(text);
   const isRepeat = !!prev && gap < 2500 && !!a && (a === b || b.startsWith(a) || a.startsWith(b));
-
+ 
   if (isRepeat) {
     // 더 긴 쪽(= 더 완전한 인식)으로 마지막 줄을 고쳐 씁니다.
     const better = text.length >= prev.text.length ? text : prev.text;
@@ -822,7 +828,7 @@ function handleUserText(text, final) {
       return;
     }
   }
-
+ 
   UI.appendTranscript({ speaker: 'user', text, icon: app.profile?.icon });
   app.lastUserFinal = { text, at: Date.now() };
   void appendMessage(app.profile.id, app.sessionId, 'user', text);
@@ -832,7 +838,7 @@ function handleUserText(text, final) {
   void checkReuse(text).catch((err) => console.warn('[app] 복습 승급 실패', err));
   setTimeout(() => UI.setUserEcho(''), 1800);
 }
-
+ 
 /**
  * 스피커 소리가 마이크로 되돌아오고 있다는 게 확인되면,
  * 조용히 넘어가지 말고 실제로 해결해 줍니다.
@@ -850,7 +856,7 @@ function noteEchoDetected() {
     return;
   }
   if (app.echoHits !== 3 || app.settings.halfDuplex) return;
-
+ 
   // 끼어들기 모드를 직접 켜신 상태에서 되돌림이 계속되면 안전 모드로 돌립니다.
   // 안전 모드에서는 선생님이 말할 때 마이크가 닫혀 이 문제가 물리적으로
   // 사라집니다. 끼어들기는 ✋ 버튼으로 계속 가능합니다.
@@ -864,7 +870,7 @@ function noteEchoDetected() {
     { variant: 'warn', ttlMs: 10000 }
   );
 }
-
+ 
 function handleTeacherText(text, final) {
   UI.setTeacherSubtitle(text);
   // 지금 말하고 있는 문장. 스피커 되돌림을 걸러낼 때 이 값과 비교합니다.
@@ -876,7 +882,7 @@ function handleTeacherText(text, final) {
     UI.setTranslateAvailable(true);
     // 새 문장이 나오면 이전 번역은 지웁니다
     UI.setKoreanSubtitle('', false);
-
+ 
     // 자동 번역은 아이에게만. 어른은 영어로 이해하는 게 학습이므로
     // 필요할 때 "무슨 뜻이야?" 버튼을 직접 누르게 합니다.
     // (텍스트 모델이라 요금은 호출당 0.1원 수준입니다)
@@ -884,7 +890,7 @@ function handleTeacherText(text, final) {
     if (autoTranslate) void showTranslation(text, { auto: true });
   }
 }
-
+ 
 /** 선생님 말을 한국어로 풀어 자막에 보여줍니다 */
 /** 한글 글자 비율 */
 function koreanRatio(text) {
@@ -893,20 +899,20 @@ function koreanRatio(text) {
   const korean = letters.replace(/[^가-힣]/g, '').length;
   return korean / letters.length;
 }
-
+ 
 async function showTranslation(text, { auto = false } = {}) {
   if (!text || !app.profile) return;
-
+ 
   // 어린 단계에서는 선생님이 이미 한국어를 많이 섞어 말합니다.
   // 그걸 또 번역하면 아무 의미 없고 요금만 나갑니다.
   if (auto && koreanRatio(text) > 0.5) return;
-
+ 
   try {
     const { korean, keyWords } = await translate(text, app.profile.age);
     // 그동안 선생님이 다른 말을 했으면 덮어쓰지 않습니다
     if (app.lastTeacherLine !== text) return;
     UI.setKoreanSubtitle(korean, true);
-
+ 
     // 핵심 표현 카드는 아껴서 띄웁니다.
     // 매 턴 띄우면 카드가 화면을 계속 덮어 아바타와 자막을 가립니다.
     // 이미 단어장에 있는 표현이면 건너뜁니다.
@@ -928,7 +934,7 @@ async function showTranslation(text, { auto = false } = {}) {
     UI.toast(`번역 실패: ${err.message}`, { variant: 'warn' });
   }
 }
-
+ 
 function handleTurnComplete() {
   app.diag.turns++;
   // 턴이 끝났으면 뒤늦게 오던 조각을 더 기다릴 이유가 없습니다.
@@ -938,7 +944,7 @@ function handleTurnComplete() {
   app.session.turns += 1;
   app.usage.addTurn(app.profile.id);
   refreshUsageUi({ force: true });
-
+ 
   // 단계가 바뀌었으면 여기서 세션을 새로 엽니다.
   // 프롬프트와 도구가 토큰에 잠겨 있어 재접속해야 새 단계가 적용됩니다.
   // 대화 맥락은 유지되고, 아이는 잠깐 끊긴 것도 못 느낍니다.
@@ -950,7 +956,7 @@ function handleTurnComplete() {
       .catch(console.error);
   }
 }
-
+ 
 /** 학습자가 배운 표현을 스스로 다시 사용했는지 검사 (간격 반복 승급) */
 async function checkReuse(userText) {
   if (!app.profile) return;
@@ -964,19 +970,19 @@ async function checkReuse(userText) {
     }
   }
 }
-
+ 
 /* ═══════════════════════════════════════════════════════════════════════════
    교육 도구 처리
-
+ 
    ⚠️ 반드시 동기로 즉시 반환해야 합니다.
       Live API의 function calling은 동기라서, 응답이 늦으면 그만큼
       선생님이 말을 못 하고 대화가 어색하게 멈춥니다.
       화면만 먼저 그리고, 저장은 기다리지 않고 백그라운드로 넘깁니다.
    ═══════════════════════════════════════════════════════════════════════════ */
-
+ 
 function handleToolCall(name, args) {
   const canRead = currentCanRead();
-
+ 
   switch (name) {
     case 'teach_word': {
       UI.showWordCard(args, { canRead, onSpeak: speakWord });
@@ -985,7 +991,7 @@ function handleToolCall(name, args) {
       void saveVocabulary(app.profile.id, args).catch(console.error);
       return { ok: true, saved: true };
     }
-
+ 
     case 'show_sentence_frame': {
       UI.showFrameCard(args, { canRead, onSpeak: speakWord });
       // 다음 대화에서 같은 틀을 이어 연습시키기 위해 기억해 둡니다
@@ -995,13 +1001,13 @@ function handleToolCall(name, args) {
       }
       return { ok: true };
     }
-
+ 
     case 'correct_sentence': {
       UI.showCorrectionCard(args, { onSpeak: speakWord });
       void saveCorrection(app.profile.id, args).catch(console.error);
       return { ok: true, saved: true };
     }
-
+ 
     case 'log_progress': {
       UI.showProgressToast(args);
       if (args.detail_ko) app.session.highlights.push(args.detail_ko);
@@ -1011,12 +1017,12 @@ function handleToolCall(name, args) {
       }
       return { ok: true };
     }
-
+ 
     case 'suggest_stage_change': {
       // 아이에게는 알리지 않습니다. 부모에게만 보입니다.
       // 한 번의 판단으로 바로 바꾸지 않고, 같은 방향 제안이 쌓여야 움직입니다.
       if (app.stage === null) return { ok: false, error: 'adult profile' };
-
+ 
       const result = recordStageSuggestion(
         app.profile.id, args.direction, args.reason_ko || ''
       );
@@ -1030,7 +1036,7 @@ function handleToolCall(name, args) {
       // ⚠️ 지금 세션의 프롬프트와 도구는 토큰에 잠겨 있어서 바로 바뀌지 않습니다.
       //    다음 턴이 끝날 때 세션을 새로 열어야 실제로 반영됩니다.
       if (result.changed) app.pendingStageReconnect = true;
-
+ 
       // 모델에게 결과를 알려줘야 같은 제안을 반복하지 않습니다
       return {
         ok: true,
@@ -1042,13 +1048,13 @@ function handleToolCall(name, args) {
           : 'Noted. Not enough evidence yet — keep teaching at the current stage.',
       };
     }
-
+ 
     default:
       console.warn('[app] 알 수 없는 도구 호출:', name);
       return { ok: false, error: 'unknown tool' };
   }
 }
-
+ 
 /**
  * 단어장을 다시 그립니다.
  * 삭제 후 목록만 지우면 상단 개수와 "아직 단어가 없어요" 안내가 어긋납니다.
@@ -1064,7 +1070,7 @@ async function refreshVocabBook() {
     },
   });
 }
-
+ 
 /** 카드의 🔊 버튼 — 브라우저 TTS (단어 하나라 무료로 충분) */
 function speakWord(text) {
   if (!text || !('speechSynthesis' in window)) return;
@@ -1079,17 +1085,17 @@ function speakWord(text) {
   if (preferred) utter.voice = preferred;
   window.speechSynthesis.speak(utter);
 }
-
+ 
 /* ═══════════════════════════════════════════════════════════════════════════
    세션 상태
    ═══════════════════════════════════════════════════════════════════════════ */
-
+ 
 function handleLiveState(state, info) {
   switch (state) {
     case LiveState.CONNECTING:
       UI.setAvatarState('connecting');
       break;
-
+ 
     case LiveState.LIVE:
       app.diag.connects++;
       app.diag.resumed = !!app.live?.resumeHandle;
@@ -1102,14 +1108,14 @@ function handleLiveState(state, info) {
       );
       UI.setMicUi({ active: true, icon: '🎙️', label: '대화 중' });
       break;
-
+ 
     case LiveState.ERROR:
       app.diag.lastError = info?.message || '연결 오류';
       updateDiagnostics({ force: true });
       UI.setAvatarState('error');
       UI.setStatus(info?.message || '연결 오류가 발생했어요.');
       break;
-
+ 
     case LiveState.IDLE:
       if (app.inCall) {
         // 유휴로 끊긴 정상 상태 — 사용자에게는 "대기 중"으로만 보입니다
@@ -1121,16 +1127,16 @@ function handleLiveState(state, info) {
       break;
   }
 }
-
+ 
 /* ═══════════════════════════════════════════════════════════════════════════
    유휴 감시 — 요금을 멈추는 곳
    ═══════════════════════════════════════════════════════════════════════════ */
-
+ 
 function startIdleWatch() {
   stopIdleWatch();
   app.idleTimer = setInterval(() => {
     if (!app.inCall || !app.live?.isLive) return;
-
+ 
     // ── 하루 한도 확인 ────────────────────────────────────────────
     // 쉬지 않고 계속 대화하면 재연결이 일어나지 않아서
     // 연결 시점 검사만으로는 한도를 넘겨버립니다. 여기서 매번 확인합니다.
@@ -1143,7 +1149,7 @@ function startIdleWatch() {
       endCall().catch(handleFatal);
       return;
     }
-
+ 
     // 선생님이 말하는 중이면 끊지 않습니다
     if (app.player?.speaking) return;
     if (app.mic && app.mic.msSinceLastSpeech() > COST.IDLE_DISCONNECT_MS) {
@@ -1153,16 +1159,16 @@ function startIdleWatch() {
     }
   }, 3000);
 }
-
+ 
 function stopIdleWatch() {
   clearInterval(app.idleTimer);
   app.idleTimer = null;
 }
-
+ 
 /* ═══════════════════════════════════════════════════════════════════════════
    미션 / 사용량
    ═══════════════════════════════════════════════════════════════════════════ */
-
+ 
 function pickMission(profile) {
   // 아이는 단계로, 어른은 레벨로 고릅니다
   const level = app.stage !== null
@@ -1174,11 +1180,11 @@ function pickMission(profile) {
   app.mission = { text: pool[seed % pool.length], done: false };
   UI.setMission(app.mission.text, false);
 }
-
+ 
 let lastUsageUiAt = 0;
-
+ 
 let lastDiagAt = 0;
-
+ 
 function updateDiagnostics({ force = false } = {}) {
   // ⚠️ 이 값은 진단 화면을 켜지 않아도 채워야 합니다.
   //    내보내기 파일은 app.diag 를 그대로 읽는데, 여기서 먼저 return 해버리면
@@ -1191,7 +1197,7 @@ function updateDiagnostics({ force = false } = {}) {
   const now = Date.now();
   if (!force && now - lastDiagAt < 250) return;
   lastDiagAt = now;
-
+ 
   UI.setDiagnostics({
     ...app.diag,
     gateState: app.mic?.gate?.state ?? '-',
@@ -1200,7 +1206,7 @@ function updateDiagnostics({ force = false } = {}) {
     live: !!app.live?.isLive,
   });
 }
-
+ 
 function refreshUsageUi({ force = false } = {}) {
   if (!app.profile) return;
   // 오디오 조각이 초당 수십 번 들어오므로 그대로 두면 매번 레이아웃이 다시 계산됩니다.
@@ -1208,18 +1214,18 @@ function refreshUsageUi({ force = false } = {}) {
   const now = Date.now();
   if (!force && now - lastUsageUiAt < 1000) return;
   lastUsageUiAt = now;
-
+ 
   UI.setUsage({
     usedMin: app.usage.todayMinutes(app.profile.id),
     limitMin: app.usage.dailyLimit(app.profile.id),
     krw: app.usage.estimateKrw(app.profile.id),
   });
 }
-
+ 
 /* ═══════════════════════════════════════════════════════════════════════════
    입력 / 버튼 배선
    ═══════════════════════════════════════════════════════════════════════════ */
-
+ 
 /**
  * 세션이 실제로 쓸 수 있는 상태(LIVE)가 될 때까지 기다립니다.
  *
@@ -1242,15 +1248,15 @@ function waitForLive(timeoutMs = 8000) {
     }, 120);
   });
 }
-
+ 
 function sendTextToTeacher(text, { echo = true } = {}) {
   if (!text?.trim() || !app.inCall) return;
-
+ 
   // 말하던 중에 타이핑했다면, 음성 발화를 먼저 정상적으로 마무리합니다.
   // 안 그러면 마이크는 계속 열린 줄 알고 오디오를 흘려보내는데 그 오디오는
   // 발화 구간 밖이라 서버가 통째로 버립니다 — 하던 말이 사라집니다.
   if (app.mic?.closeActivity()) app.diag.activityEnd++;
-
+ 
   if (echo) {
     UI.appendTranscript({ speaker: 'user', text, icon: app.profile?.icon });
     // 타이핑한 문장은 "방금 확정된 내 말"로 두지 않습니다.
@@ -1258,12 +1264,12 @@ function sendTextToTeacher(text, { echo = true } = {}) {
     app.lastUserFinal = null;
     void appendMessage(app.profile.id, app.sessionId, 'user', text);
   }
-
+ 
   if (app.live?.isLive) {
     app.live.sendText(text);
     return;
   }
-
+ 
   void resumeLive()
     .then(() => waitForLive())
     .then((ready) => {
@@ -1276,13 +1282,13 @@ function sendTextToTeacher(text, { echo = true } = {}) {
       }
     });
 }
-
+ 
 function wireGlobalControls() {
   const $ = (id) => document.getElementById(id);
-
+ 
   // 통화 종료 / 프로필 전환
   $('back-button')?.addEventListener('click', () => endCall().catch(handleFatal));
-
+ 
   // 마이크 버튼: 통화 중 일시정지 토글
   $('mic-button')?.addEventListener('click', () => {
     if (!app.inCall) return;
@@ -1293,14 +1299,14 @@ function wireGlobalControls() {
       void resumeLive();
     }
   });
-
+ 
   // ✋ 끼어들기: 선생님 말을 즉시 끊고 내 차례로 넘어옵니다.
   //    목소리로 끼어드는 게 잘 안 될 때를 위한 확실한 탈출구입니다.
   $('interrupt-button')?.addEventListener('click', () => {
     if (!app.inCall) return;
     interruptTeacher();
   });
-
+ 
   // 텍스트로 말 걸기 (조용한 곳 / 발음이 잘 안 잡힐 때)
   const send = () => {
     const input = $('text-input');
@@ -1313,12 +1319,12 @@ function wireGlobalControls() {
   $('text-input')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') send();
   });
-
+ 
   // 번역 ("무슨 뜻이야?")
   $('translate-button')?.addEventListener('click', () => {
     if (app.lastTeacherLine) void showTranslation(app.lastTeacherLine);
   });
-
+ 
   // 단어장
   $('vocab-button')?.addEventListener('click', async () => {
     if (!app.profile) return;
@@ -1331,7 +1337,7 @@ function wireGlobalControls() {
       UI.toast(`단어장을 열지 못했어요: ${err.message}`, { variant: 'error', ttlMs: 7000 });
     }
   });
-
+ 
   // 복습 퀴즈 — 텍스트 모델이라 음성 대비 요금이 거의 0입니다
   $('quiz-button')?.addEventListener('click', async (e) => {
     if (!app.profile) return;
@@ -1345,7 +1351,7 @@ function wireGlobalControls() {
         ? due
         : (await listVocabulary(app.profile.id, { limit: 8 }));
       const words = pool.map((v) => v.word);
-
+ 
       if (!words.length) {
         UI.toast('아직 모은 단어가 없어요. 먼저 대화를 해보세요!', { variant: 'warn' });
         return;
@@ -1360,7 +1366,7 @@ function wireGlobalControls() {
     }
   });
   $('vocab-close')?.addEventListener('click', () => UI.closeModal('vocab-modal'));
-
+ 
   // 리포트
   $('report-button')?.addEventListener('click', async () => {
     if (!app.profile) return;
@@ -1392,7 +1398,7 @@ function wireGlobalControls() {
     }
   });
   $('report-close')?.addEventListener('click', () => UI.closeModal('report-modal'));
-
+ 
   // 지난 대화 보기
   $('history-button')?.addEventListener('click', async () => {
     if (!app.profile) return;
@@ -1406,7 +1412,7 @@ function wireGlobalControls() {
     }
   });
   $('history-close')?.addEventListener('click', () => UI.closeModal('history-modal'));
-
+ 
   // 대화 + 진단 정보를 파일로 내보내기 (문제 해결용)
   $('export-button')?.addEventListener('click', async (e) => {
     if (!app.profile) return;
@@ -1422,7 +1428,7 @@ function wireGlobalControls() {
       });
       const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '');
       downloadText(`우리집영어_${app.profile.name}_${stamp}.txt`, text);
-
+ 
       const copied = await copyText(text);
       UI.toast(
         copied
@@ -1438,18 +1444,18 @@ function wireGlobalControls() {
       btn.textContent = original;
     }
   });
-
+ 
   // 롤플레이
   $('roleplay-button')?.addEventListener('click', () => UI.openModal('roleplay-modal'));
   $('roleplay-close')?.addEventListener('click', () => UI.closeModal('roleplay-modal'));
-
+ 
   // 설정
   $('settings-button')?.addEventListener('click', () => {
     syncSettingsUi();
     UI.openModal('settings-modal');
   });
   $('settings-close')?.addEventListener('click', () => UI.closeModal('settings-modal'));
-
+ 
   $('setting-half-duplex')?.addEventListener('change', (e) => {
     app.settings.halfDuplex = e.target.checked;
     // 사용자가 직접 고른 값이라는 표시. 이게 있으면 나중에 기본값을 또 바꿔도
@@ -1468,20 +1474,20 @@ function wireGlobalControls() {
       { variant: 'info', ttlMs: 6000 }
     );
   });
-
+ 
   $('setting-diagnostics')?.addEventListener('change', (e) => {
     app.settings.showDiagnostics = e.target.checked;
     saveSettings(app.settings);
     if (e.target.checked) updateDiagnostics();
     else UI.hideDiagnostics();
   });
-
+ 
   $('setting-korean-sub')?.addEventListener('change', (e) => {
     app.settings.showKoreanSubtitle = e.target.checked;
     saveSettings(app.settings);
     if (!e.target.checked) UI.setKoreanSubtitle('', false);
   });
-
+ 
   $('setting-can-read')?.addEventListener('change', (e) => {
     if (!app.profile) return;
     const raw = e.target.value;
@@ -1497,7 +1503,7 @@ function wireGlobalControls() {
       { variant: 'info' }
     );
   });
-
+ 
   $('setting-avatar-mode')?.addEventListener('change', async (e) => {
     const mode = e.target.value;
     app.settings.avatarMode = mode;
@@ -1517,7 +1523,7 @@ function wireGlobalControls() {
     }
     syncSettingsUi();
   });
-
+ 
   /* 3D 아바타 얼굴 주소.
      잘못된 주소를 넣으면 얼굴이 통째로 안 뜨므로, 저장 전에 형식을 검사하고
      morphTargets 파라미터가 빠졌으면 붙여줍니다. 이게 빠지면 모델은 뜨는데
@@ -1548,7 +1554,7 @@ function wireGlobalControls() {
       await app.avatar.mount(AVATAR_MODE.THREE);
     }
   });
-
+ 
   // 탭을 벗어나면 요금이 새지 않게 정리하고, 돌아오면 오디오를 되살립니다
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
@@ -1566,7 +1572,7 @@ function wireGlobalControls() {
       }
       return;
     }
-
+ 
     // 돌아왔을 때: iOS는 백그라운드에서 AudioContext를 suspended로 바꿔놓고
     // 자동으로 재개해주지 않습니다. 그러면 마이크가 죽은 채로 남습니다.
     if (app.inCall) {
@@ -1583,13 +1589,13 @@ function wireGlobalControls() {
       });
     }
   });
-
+ 
   window.addEventListener('pagehide', () => {
     app.usage.flush();
     app.live?.disconnect({ keepContext: false }).catch(() => {});
   });
 }
-
+ 
 function syncSettingsUi() {
   const $ = (id) => document.getElementById(id);
   if ($('setting-half-duplex')) $('setting-half-duplex').checked = !!app.settings.halfDuplex;
@@ -1600,12 +1606,12 @@ function syncSettingsUi() {
   // 얼굴 주소 칸은 3D 모드일 때만 의미가 있습니다
   const urlRow = $('avatar-url-setting');
   if (urlRow) urlRow.style.display = app.settings.avatarMode === AVATAR_MODE.THREE ? '' : 'none';
-
+ 
   // 아이 프로필일 때만 학습 단계와 읽기 여부를 보여줍니다
   const isChild = app.stage !== null && app.profile;
   const readRow = $('setting-can-read')?.closest('.setting-row');
   if (readRow) readRow.style.display = isChild ? '' : 'none';
-
+ 
   if (isChild) {
     const info = getStageInfo(app.profile.id);
     UI.renderStageLadder(CHILD_STAGES, {
@@ -1634,25 +1640,26 @@ function syncSettingsUi() {
     UI.renderStageLadder(CHILD_STAGES, { current: null });
   }
 }
-
+ 
 /** 이 아이가 영어 글자를 읽는지 (설정에서 바꾼 값 우선) */
 function currentCanRead() {
   if (!app.profile) return true;
   const override = app.settings.canRead?.[app.profile.id];
   return override !== undefined ? override : (app.profile.canRead ?? true);
 }
-
+ 
 function handleFatal(err) {
   console.error('[app] 치명적 오류', err);
   UI.setAvatarState('error');
   UI.setStatus(err?.message || '알 수 없는 오류가 발생했어요.');
   UI.toast(err?.message || '오류가 발생했습니다.', { variant: 'error', ttlMs: 9000 });
 }
-
+ 
 /* ═══════════════════════════════════════════════════════════════════════════ */
-
+ 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', boot);
 } else {
   boot();
 }
+ 
