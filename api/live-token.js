@@ -106,7 +106,16 @@ module.exports = async function handler(req, res) {
   }
  
   const context = sanitizeContext(req.body?.context);
+  /* 실시간 음성 모델은 하나가 아닙니다.
+     계정·지역에 따라 어떤 건 되고 어떤 건 안 됩니다. 그런데 안 될 때
+     구글은 "이 모델 못 쓴다"고 말해주는 대신 **그냥 응답을 안 합니다.**
+     그래서 모델 하나만 시도하면 원인을 영영 알 수 없습니다.
+     후보를 순서대로 내려보내고, 클라이언트가 하나씩 시도합니다. */
   const model = process.env.GEMINI_LIVE_MODEL || 'gemini-3.1-flash-live-preview';
+  const fallbackModels = [
+    'gemini-2.5-flash-native-audio-preview-12-2025',
+    'gemini-live-2.5-flash-preview',
+  ].filter((m) => m !== model);
  
   try {
     // ephemeral token은 v1alpha에서만 지원됩니다.
@@ -162,6 +171,8 @@ module.exports = async function handler(req, res) {
       /* 이제 setup 설정을 클라이언트가 보냅니다.
          (프롬프트·도구·음성 모두 여전히 서버가 만든 그대로입니다) */
       config,
+      /* 첫 모델이 안 되면 시도할 다른 실시간 음성 모델들 */
+      fallbackModels,
       // 서버 자동 VAD를 껐으므로, 말의 끝은 클라이언트가 판단합니다.
       // 그 기준 시간을 여기서 내려줍니다 (4살은 길게, 어른은 짧게).
       endOfSpeechMs: endOfSpeechMs(profile, context),
