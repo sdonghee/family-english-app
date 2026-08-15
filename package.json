@@ -1,15 +1,13 @@
 {
   "name": "family-english-app",
   "private": true,
-  "version": "11.0.0",
-  "description": "우리 가족 영어 회화 — Gemini Live 실시간 음성 대화 + 3D 아바타",
+  "version": "11.1.0",
+  "description": "우리 가족 영어 회화 — Gemini 대화 + Gemini TTS 음성 + 3D 아바타 (Live API 미사용)",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "serve": "node tools/serve.js",
-    "smoke": "node tools/smoke.js",
-    "avatar-test": "node tools/avatar-test.js"
+    "test": "node tools/turn-queue.test.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.17.1"
