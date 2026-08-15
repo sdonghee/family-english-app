@@ -17,22 +17,22 @@
  *   - 세션은 약 10분이면 끊깁니다. sessionResumption으로 이어야 합니다.
  * ----------------------------------------------------------------------------
  */
-
+ 
 import { base64ToBytes, bytesToInt16 } from './pcm.js';
 import { AUDIO } from './config.js';
-
+ 
 /** SDK를 CDN에서 불러옵니다. 한 곳이 죽어도 되게 후보를 여러 개 둡니다. */
 const SDK_SOURCES = [
   'https://esm.sh/@google/genai@2.15.0',
   'https://cdn.jsdelivr.net/npm/@google/genai@2.15.0/+esm',
   'https://esm.run/@google/genai@2.15.0',
 ];
-
+ 
 let sdkPromise = null;
-
+ 
 async function loadSdk() {
   if (sdkPromise) return sdkPromise;
-
+ 
   sdkPromise = (async () => {
     let lastError;
     for (const url of SDK_SOURCES) {
@@ -53,13 +53,13 @@ async function loadSdk() {
       `(${lastError?.message || 'unknown'})`
     );
   })();
-
+ 
   return sdkPromise;
 }
-
+ 
 /** connect()가 이 시간 안에 끝나지 않으면 포기합니다. */
 const CONNECT_TIMEOUT_MS = 15_000;
-
+ 
 /**
  * 절대 끝나지 않을 수 있는 약속에 시간 제한을 겁니다.
  *
@@ -102,27 +102,27 @@ export function appendTranscriptChunk(buffer, chunk) {
   //    app.js 의 중복 합치기가 화면 단계에서 처리합니다.
   return buffer + chunk;
 }
-
+ 
 export function withTimeout(promise, ms, message, onLateSuccess) {
   let timer;
   let timedOut = false;
-
+ 
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
       timedOut = true;
       reject(new Error(message));
     }, ms);
   });
-
+ 
   promise
     .then((value) => {
       if (timedOut && value) onLateSuccess?.(value);
     })
     .catch(() => {});
-
+ 
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
-
+ 
 /** 세션 상태 */
 export const LiveState = {
   IDLE: 'idle',
@@ -131,8 +131,14 @@ export const LiveState = {
   RECONNECTING: 'reconnecting',
   ERROR: 'error',
 };
-
+ 
 export class LiveSession {
+  /**
+   * 이 모델에서 실제로 통한 설정 사다리 단계 (클래스 전체가 공유).
+   * 한 번 찾으면 이후 접속은 곧바로 그 단계에서 시작합니다.
+   */
+  static _workingRung = 0;
+ 
   /**
    * @param {object} handlers
    * @param {(pcm16: Int16Array) => void}      handlers.onAudio        선생님 음성 조각
@@ -145,31 +151,31 @@ export class LiveSession {
    */
   constructor(handlers) {
     this.h = handlers;
-
+ 
     this.session = null;
     this.state = LiveState.IDLE;
     this.profileId = null;
     this.model = null;
-
+ 
     /** 세션을 이어붙이기 위한 핸들 */
     this.resumeHandle = null;
     /** 서버가 곧 끊는다고 알려줬는지 */
     this.goingAway = false;
-
+ 
     /** 자막 누적 버퍼 (조각으로 오기 때문에 이어붙여야 함) */
     this._userBuffer = '';
     this._teacherBuffer = '';
-
+ 
     this._closedByUs = false;
     this._reconnectAttempts = 0;
-
+ 
     /**
      * 소켓 세대 번호.
      * 이전 소켓의 close/error 이벤트가 한 박자 늦게 도착해서
      * 지금 살아있는 소켓을 죽여버리는 사고를 막습니다.
      */
     this._connGen = 0;
-
+ 
     /**
      * 지금 서버에 "말하는 중"이라고 알린 상태인지.
      *
@@ -180,12 +186,12 @@ export class LiveSession {
      */
     this._activityOpen = false;
   }
-
+ 
   _setState(state, info) {
     this.state = state;
     this.h.onState?.(state, info);
   }
-
+ 
   /**
    * 세션을 엽니다.
    * @param {string} profileId
@@ -193,7 +199,7 @@ export class LiveSession {
    */
   async connect(profileId, context = {}) {
     if (this.state === LiveState.CONNECTING || this.state === LiveState.LIVE) return;
-
+ 
     this.profileId = profileId;
     this._closedByUs = false;
     // 새 소켓은 아무것도 모릅니다. 이전 세션의 발화 상태를 물려받으면 안 됩니다.
@@ -211,16 +217,16 @@ export class LiveSession {
     this._userBuffer = '';
     this._teacherBuffer = '';
     this._setState(LiveState.CONNECTING);
-
+ 
     // ── 1. 서버에서 임시 토큰 받기 ─────────────────────────────────────
     const res = await fetch('/api/live-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ profileId, context }),
     });
-
+ 
     const payload = await res.json().catch(() => ({}));
-
+ 
     if (!res.ok || !payload.token) {
       /* 서버가 내려준 hint 를 **반드시** 사람이 읽는 메시지로 씁니다.
          예전에는 "토큰 발급 실패 (500)" 만 보여줬는데, 실제 원인은
@@ -236,40 +242,84 @@ export class LiveSession {
       this._setState(LiveState.ERROR, { message });
       throw err;
     }
-
+ 
     this.model = payload.model;
     // 서버가 알려준 "말 끝 판단 대기 시간"을 위로 전달합니다
     if (payload.endOfSpeechMs) this.h.onVadConfig?.(payload.endOfSpeechMs);
-
+ 
     // ── 2. Live API 연결 ─────────────────────────────────────────────
     const { GoogleGenAI } = await loadSdk();
-
+ 
     const ai = new GoogleGenAI({
       apiKey: payload.token,
       // ephemeral token은 v1alpha에서만 동작합니다.
       httpOptions: { apiVersion: 'v1alpha' },
     });
-
-    // 설정(프롬프트/도구/음성)은 토큰에 잠겨 있으므로 여기서 다시 보내지 않습니다.
-    // sessionResumption만 잠기지 않았기에 재접속용으로 전달합니다.
-    const config = {
+ 
+    /* 설정(프롬프트/도구/음성)을 서버에서 받아 그대로 setup 프레임에 실어 보냅니다.
+       (예전에는 토큰에 잠겨 있었지만, 그 방식이 field_mask 오류를 일으켰습니다) */
+    const baseConfig = {
+      ...(payload.config || {}),
       sessionResumption: this.resumeHandle ? { handle: this.resumeHandle } : {},
     };
-
+ 
+    /* ⚠️ 설정 사다리(config ladder).
+     *
+     * Live API 는 모델·버전에 따라 **지원하지 않는 설정 필드**가 있고,
+     * 그런 필드가 하나라도 있으면 연결을 통째로 거부합니다(INVALID_ARGUMENT).
+     * 어느 필드가 문제인지 오류만 봐서는 알 수 없습니다.
+     *
+     * 그래서 거부당하면 의심스러운 순서대로 하나씩 빼고 다시 시도합니다.
+     * 성공하면 어떤 것을 뺐을 때 됐는지 콘솔과 진단 화면에 남깁니다.
+     * 이렇게 하면 **배포 한 번으로** 원인을 찾을 수 있습니다.
+     * (배포하고 → 안 되고 → 또 고치고 를 반복하지 않으려는 장치입니다)
+     */
+    const LADDER = [
+      { label: '전체 설정', strip: (c) => c },
+      { label: 'thinkingConfig 제거', strip: (c) => { const x = { ...c }; delete x.thinkingConfig; return x; } },
+      { label: '+ inputAudioTranscription 단순화', strip: (c) => {
+          const x = { ...c }; delete x.thinkingConfig;
+          if (x.inputAudioTranscription) x.inputAudioTranscription = {};
+          return x; } },
+      { label: '+ contextWindowCompression 제거', strip: (c) => {
+          const x = { ...c }; delete x.thinkingConfig; delete x.contextWindowCompression;
+          if (x.inputAudioTranscription) x.inputAudioTranscription = {};
+          return x; } },
+      { label: '+ temperature 제거', strip: (c) => {
+          const x = { ...c }; delete x.thinkingConfig; delete x.contextWindowCompression;
+          delete x.temperature;
+          if (x.inputAudioTranscription) x.inputAudioTranscription = {};
+          return x; } },
+      { label: '+ tools 제거 (가르치기 카드 없이)', strip: (c) => {
+          const x = { ...c }; delete x.thinkingConfig; delete x.contextWindowCompression;
+          delete x.temperature; delete x.tools;
+          if (x.inputAudioTranscription) x.inputAudioTranscription = {};
+          return x; } },
+      { label: '최소 설정 (음성만)', strip: (c) => ({
+          responseModalities: ['AUDIO'],
+          systemInstruction: c.systemInstruction,
+          speechConfig: c.speechConfig,
+          realtimeInputConfig: c.realtimeInputConfig,
+          sessionResumption: c.sessionResumption,
+        }) },
+    ];
+ 
+    /* 한 번 성공한 단계는 기억해서, 다음 접속부터는 곧바로 그 단계로 갑니다.
+       (매번 실패부터 시작하면 접속이 느려집니다)                        */
+    const startAt = LiveSession._workingRung ?? 0;
+    const config = LADDER[startAt].strip(baseConfig);
+ 
     // 이 소켓의 세대 번호. 콜백은 자기 세대일 때만 동작합니다.
     const gen = ++this._connGen;
     const isCurrent = () => gen === this._connGen;
-
+ 
     try {
       // ⚠️ SDK의 live.connect()는 setupComplete를 기다리는데, 그 약속은
       //    소켓이 그 전에 죽어도 **영원히 resolve/reject 되지 않습니다**.
       //    (만료된 토큰, 1007 설정 거부, 핸드셰이크 중 네트워크 끊김)
       //    그대로 두면 app.js의 reconnecting 플래그가 영구히 true로 남아
       //    통화가 끝날 때까지 다시는 연결되지 않습니다. 반드시 타임아웃을 겁니다.
-      const session = await withTimeout(ai.live.connect({
-        model: this.model,
-        config,
-        callbacks: {
+      const session = await withTimeout(this._connectWithLadder(ai, LADDER, baseConfig, startAt, {
           onopen: () => {
             if (!isCurrent()) return;
             this._reconnectAttempts = 0;
@@ -300,18 +350,17 @@ export class LiveSession {
               this._setState(LiveState.IDLE, { reason: event?.reason });
             }
           },
-        },
-      }), CONNECT_TIMEOUT_MS, '서버 응답이 없어 연결을 포기했습니다 (15초)',
+        }), CONNECT_TIMEOUT_MS, '서버 응답이 없어 연결을 포기했습니다 (15초)',
         // 타임아웃 후 뒤늦게 열린 소켓은 주인이 없으므로 닫아줍니다 (계속 과금 방지)
         (late) => { try { late.close(); } catch {} });
-
+ 
       // 연결하는 동안 사용자가 통화를 끊었거나 다른 세션이 시작됐다면
       // 이 소켓은 주인이 없습니다. 그냥 두면 요금이 계속 나갑니다.
       if (!isCurrent() || this._closedByUs) {
         try { session.close(); } catch {}
         return;
       }
-
+ 
       this.session = session;
       // session이 실제로 쓸 수 있게 된 지금이 LIVE입니다.
       this._setState(LiveState.LIVE);
@@ -324,7 +373,54 @@ export class LiveSession {
       throw new Error(message);
     }
   }
-
+ 
+  /**
+   * 설정 사다리를 타고 내려가며 연결을 시도합니다.
+   *
+   * 설정이 거부됐을 때(INVALID_ARGUMENT / 1007)만 다음 단계로 내려갑니다.
+   * 인증 실패·네트워크 오류 같은 건 설정 문제가 아니므로 즉시 포기합니다.
+   * (그런 걸로 사다리를 다 타면 원인을 더 헷갈리게 만듭니다)
+   */
+  async _connectWithLadder(ai, ladder, baseConfig, startAt, callbacks) {
+    let lastErr = null;
+ 
+    for (let i = startAt; i < ladder.length; i++) {
+      const rung = ladder[i];
+      const cfg = rung.strip(baseConfig);
+      try {
+        const session = await ai.live.connect({
+          model: this.model,
+          config: cfg,
+          callbacks,
+        });
+ 
+        // 성공. 이 단계를 기억해서 다음 접속은 곧바로 여기서 시작합니다.
+        if (LiveSession._workingRung !== i) {
+          LiveSession._workingRung = i;
+          if (i > 0) {
+            console.warn(
+              `[live] 설정 사다리: "${rung.label}" 단계에서 연결 성공. ` +
+              '이 모델이 위 단계의 설정 필드를 지원하지 않습니다.'
+            );
+          }
+        }
+        this.activeConfigLabel = rung.label;
+        return session;
+      } catch (err) {
+        lastErr = err;
+        const raw = String(err?.message || err);
+        const isConfigRejection =
+          /INVALID_ARGUMENT|field_mask|1007|invalid/i.test(raw);
+ 
+        if (!isConfigRejection) throw err;   // 설정 문제가 아니면 바로 포기
+ 
+        console.warn(`[live] 설정 거부됨 (${rung.label}) → 다음 단계 시도: ${raw.slice(0, 160)}`);
+      }
+    }
+ 
+    throw lastErr || new Error('모든 설정 조합이 거부되었습니다');
+  }
+ 
   _explainConnectError(err) {
     const raw = String(err?.message || err);
     if (/1007|invalid|INVALID_ARGUMENT/i.test(raw)) {
@@ -338,7 +434,7 @@ export class LiveSession {
     }
     return raw;
   }
-
+ 
   /**
    * 서버 메시지 처리.
    * 한 이벤트에 여러 종류가 동시에 들어올 수 있으므로 순서대로 전부 확인합니다.
@@ -351,13 +447,13 @@ export class LiveSession {
         this.resumeHandle = update.newHandle;
       }
     }
-
+ 
     // ── 서버가 곧 연결을 끊는다고 알려줌 ───────────────────────────
     if (message.goAway) {
       this.goingAway = true;
       console.info('[live] 서버가 곧 연결을 종료합니다', message.goAway.timeLeft);
     }
-
+ 
     // ── 교육 도구 호출 (동기로 즉시 응답해야 함) ───────────────────
     if (message.toolCall?.functionCalls?.length) {
       const responses = [];
@@ -378,10 +474,10 @@ export class LiveSession {
         console.error('[live] 도구 응답 전송 실패', err);
       }
     }
-
+ 
     const content = message.serverContent;
     if (!content) return;
-
+ 
     // ── 내가 끼어들었음 → 예약된 음성 전부 폐기 ────────────────────
     if (content.interrupted) {
       this._teacherBuffer = '';
@@ -392,13 +488,13 @@ export class LiveSession {
       this._flushUserBuffer();
       this.h.onInterrupted?.();
     }
-
+ 
     // ── 내가 한 말 (음성인식 결과) ─────────────────────────────────
     if (content.inputTranscription?.text) {
       this._userBuffer = appendTranscriptChunk(this._userBuffer, content.inputTranscription.text);
       this.h.onUserText?.(this._userBuffer, false);
     }
-
+ 
     // ── 선생님이 한 말 (자막) ──────────────────────────────────────
     if (content.outputTranscription?.text) {
       this._teacherBuffer = appendTranscriptChunk(
@@ -406,7 +502,7 @@ export class LiveSession {
       );
       this.h.onTeacherText?.(this._teacherBuffer, false);
     }
-
+ 
     // ── 선생님 음성 조각 ──────────────────────────────────────────
     // ⚠️ message.data 는 SDK의 **getter** 로, modelTurn.parts 안의 오디오를
     //    이어붙여 돌려줍니다. 둘 다 처리하면 같은 소리가 두 번 재생됩니다.
@@ -421,7 +517,7 @@ export class LiveSession {
         }
       }
     }
-
+ 
     // ── 턴 종료 ──────────────────────────────────────────────────
     if (content.turnComplete) {
       this._flushUserBuffer();
@@ -432,7 +528,7 @@ export class LiveSession {
       this.h.onTurnComplete?.();
     }
   }
-
+ 
   _emitAudio(base64) {
     try {
       const pcm16 = bytesToInt16(base64ToBytes(base64));
@@ -441,7 +537,7 @@ export class LiveSession {
       console.warn('[live] 오디오 디코딩 실패', err);
     }
   }
-
+ 
   /** 마이크 프레임 전송 (base64 PCM16 16kHz) */
   sendAudio(base64Pcm) {
     if (this.state !== LiveState.LIVE || !this.session) return;
@@ -456,7 +552,7 @@ export class LiveSession {
       }
     }
   }
-
+ 
   /**
    * 말의 시작을 서버에 알립니다.
    *
@@ -474,12 +570,12 @@ export class LiveSession {
   sendActivityStart() {
     if (this.state !== LiveState.LIVE || !this.session) return false;
     if (this._activityOpen) return false;   // 이미 열려 있으면 중복 전송 금지
-
+ 
     // 새 발화가 시작되므로 앞 발화의 자막을 여기서 확정합니다.
     // (끝날 때 확정하면, 늦게 도착하는 인식 결과가 새 버퍼에 들어가
     //  같은 문장이 두 줄로 쪼개집니다)
     this._flushUserBuffer();
-
+ 
     try {
       this.session.sendRealtimeInput({ activityStart: {} });
       this._activityOpen = true;
@@ -489,12 +585,12 @@ export class LiveSession {
       return false;
     }
   }
-
+ 
   /** 말이 끝났음을 알립니다 → 서버가 응답을 시작합니다 */
   sendActivityEnd() {
     if (this.state !== LiveState.LIVE || !this.session) return false;
     if (!this._activityOpen) return false;  // 시작하지 않았으면 끝낼 것도 없음
-
+ 
     this._activityOpen = false;
     try {
       this.session.sendRealtimeInput({ activityEnd: {} });
@@ -504,18 +600,18 @@ export class LiveSession {
       return false;
     }
   }
-
+ 
   /** 지금 서버에 "말하는 중"이라고 알린 상태인지 */
   get isActivityOpen() {
     return this._activityOpen;
   }
-
+ 
   _flushUserBuffer() {
     const text = this._userBuffer.trim();
     this._userBuffer = '';
     if (text) this.h.onUserText?.(text, true);
   }
-
+ 
   /**
    * 텍스트로 말 걸기 (키보드 입력, 롤플레이 시작 등)
    *
@@ -540,7 +636,7 @@ export class LiveSession {
       console.warn('[live] 텍스트 전송 실패', err);
     }
   }
-
+ 
   /** 세션 종료. 대화 맥락(resumeHandle)은 유지합니다. */
   async disconnect({ keepContext = true } = {}) {
     this._closedByUs = true;
@@ -548,22 +644,22 @@ export class LiveSession {
     this._flushUserBuffer();
     this._activityOpen = false;
     if (!keepContext) this.resumeHandle = null;
-
+ 
     // 이 소켓의 콜백을 은퇴시킵니다.
     // 늦게 도착하는 close 이벤트가 다음 소켓을 죽이지 않게 하기 위해서입니다.
     this._connGen++;
-
+ 
     try { this.session?.close(); } catch {}
     this.session = null;
     this._teacherBuffer = '';
     this._setState(LiveState.IDLE);
   }
-
+ 
   /** 대화 맥락까지 완전히 초기화 */
   resetContext() {
     this.resumeHandle = null;
   }
-
+ 
   get isLive() {
     return this.state === LiveState.LIVE && !!this.session;
   }
