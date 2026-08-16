@@ -20,9 +20,14 @@
  */
 
 import { ChatSession, LiveState } from '../web_app/src/chatSession.js';
-import { AUDIO } from '../web_app/src/config.js';
+import { AUDIO, COST } from '../web_app/src/config.js';
+import { MicStream } from '../web_app/src/mic.js';
+import { SilenceGate, GateState } from '../web_app/src/gate.js';
+import { measureSpeech, shouldSendAudio } from '../web_app/src/speechEnergy.js';
 import parseTurnModule from '../api/_parseTurn.js';
+import personaModule from '../api/_persona.js';
 const { parseTurnText, HEARD_RE } = parseTurnModule;
+const { endOfSpeechMs, FAMILY_PROFILES, MIN_END_OF_SPEECH_MS } = personaModule;
 
 /* ── 아주 작은 검사 도구 (외부 라이브러리 없이) ─────────────────────────── */
 
@@ -81,9 +86,43 @@ function jsonResponse(status, obj) {
   return { ok: status >= 200 && status < 300, status, json: async () => obj };
 }
 
+/**
+ * 사람이 말하는 것처럼 생긴 PCM 을 만듭니다.
+ *
+ * ⚠️ 예전에는 `new Int16Array(n).fill(1000)` — 즉 **꼼짝도 않는 상수값**이었습니다.
+ *    그건 소리가 아니라 직류입니다. 사람 목소리는 음절마다 크게 출렁이고
+ *    앞뒤에 반드시 조용한 구간이 있습니다.
+ *
+ *    가짜 데이터가 진짜와 다르면, 테스트는 통과하는데 앱은 고장납니다.
+ *    실제로 "말소리가 들어 있나" 검사를 붙이자마자 이 상수값이 전부
+ *    걸러졌습니다 — 검사가 옳았고 가짜 데이터가 틀렸던 겁니다.
+ */
+function speechLikePcm(totalSamples, { quietLead = 0.15 } = {}) {
+  const pcm = new Int16Array(totalSamples);
+  const lead = Math.floor(totalSamples * quietLead);
+  for (let i = 0; i < totalSamples; i++) {
+    const inSpeech = i >= lead && i < totalSamples - lead;
+    // 음절: 약 5Hz 로 크기가 출렁입니다
+    const syllable = inSpeech ? 0.35 + 0.65 * Math.abs(Math.sin((i / 16000) * Math.PI * 5)) : 0;
+    const amp = inSpeech ? 0.06 * syllable : 0.0025;   // 말할 때 0.06, 쉴 때 밑소음
+    pcm[i] = Math.round(amp * Math.SQRT2 * 32768 * Math.sin(i * 0.31));
+  }
+  return pcm;
+}
+
 /** 0.5초짜리 말소리 한 덩어리 (base64 PCM16 16kHz 조각들) */
 function utteranceFrames(sampleCount = AUDIO.INPUT_SAMPLE_RATE / 2) {
-  const pcm = new Int16Array(sampleCount).fill(1000);
+  const pcm = speechLikePcm(sampleCount);
+  return [Buffer.from(pcm.buffer).toString('base64')];
+}
+
+/** 아무도 말하지 않은 방 (게이트가 잘못 열렸을 때 올라가던 그 덩어리) */
+function roomNoiseFrames(seconds = 20, rms = 0.005) {
+  const n = AUDIO.INPUT_SAMPLE_RATE * seconds;
+  const pcm = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    pcm[i] = Math.round(rms * Math.SQRT2 * 32768 * Math.sin(i * 0.17));
+  }
   return [Buffer.from(pcm.buffer).toString('base64')];
 }
 
@@ -341,6 +380,380 @@ function testHeardNeverStealsReplyLine() {
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * [7] 목사님이 말을 하면, 그 말이 반드시 서버까지 간다
+ *
+ * 2026-08-16 실제 사고:
+ *   "내 말은 인식하지 못하고, 내가 하지도 않은 말을 혼자 만들어내면서
+ *    대화를 이어간다. 두 번째부터는 더 안 된다."
+ *
+ * 계측으로 밝혀진 원인 (세 겹이었습니다):
+ *   ① 유지문턱(sustain)이 밑소음보다 **아래**에 있어서, 한 번 열린 마이크가
+ *      영원히 안 닫힘 → activity:'end' 가 안 나감 → 한 마디도 서버에 안 감.
+ *   ② 소음 추정기가 **아래로만** 배움. 방이 문턱보다 시끄러워지면 갱신 기회가
+ *      영영 안 와서 추정치가 굳어버림.
+ *   ③ 소음이 고르면 변동폭이 0 으로 수렴해 문턱 사이 간격이 사라지고,
+ *      그 틈에 밑소음이 그대로 앉음 → 첫 문장 뒤로 계속 열린 채 먹통.
+ *
+ * 이 테스트는 **실제 mic.js / gate.js** 를 돌립니다. 로직을 복제하지 않습니다.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const FRAME_MS = (AUDIO.FRAME_SAMPLES / AUDIO.INPUT_SAMPLE_RATE) * 1000;
+
+/** 지정한 세기(RMS)를 갖는 한 프레임 */
+function micFrame(rms, phase) {
+  const f = new Float32Array(AUDIO.FRAME_SAMPLES);
+  const amp = rms * Math.SQRT2;
+  for (let i = 0; i < f.length; i++) f[i] = amp * Math.sin((i + phase) * 0.05);
+  return f;
+}
+
+/**
+ * 방에서 실제로 벌어지는 일을 마이크에 흘려넣고,
+ * 서버로 나간 턴이 몇 개인지 셉니다.
+ */
+function runMic({ ambient, voice, turns, endOfSpeech }) {
+  let t = 0;
+  let phase = 0;
+  let open = false;
+  let openFrames = 0;
+  const got = [];
+
+  const mic = new MicStream({
+    onAudioFrame: () => { if (open) openFrames++; },
+    onActivity: (kind) => {
+      if (kind === 'start') { open = true; openFrames = 0; }
+      else { open = false; got.push(openFrames * FRAME_MS); }
+    },
+    onLevel: () => {},
+    onStreamedMs: () => {},
+    now: () => t,
+  });
+  mic.running = true;
+  mic.utterancePeak = 0;
+  if (endOfSpeech) mic.setEndOfSpeechMs(endOfSpeech);
+
+  const feed = (ms, rms, speech) => {
+    const n = Math.round(ms / FRAME_MS);
+    for (let i = 0; i < n; i++) {
+      const lv = speech ? rms * (i % 4 === 3 ? 0.35 : 1) : rms;
+      mic._handleFrame(micFrame(lv, (phase += 7)));
+      t += FRAME_MS;
+    }
+  };
+
+  feed(6000, ambient, false);              // 앱을 켜고 조용히 기다림
+  for (let k = 0; k < turns; k++) {
+    feed(2500, voice, true);               // 한 문장
+    feed(6000, ambient, false);            // 선생님이 대답하는 동안
+  }
+  feed(5000, ambient, false);
+  return got;
+}
+
+function testEveryUtteranceReachesServer() {
+  console.log('\n[7] 말을 하면 반드시 서버까지 가는가 (실제 mic.js/gate.js)');
+
+  /* 7-1 조용한 방부터 시끄러운 방까지, 큰 목소리와 작은 목소리 모두.
+         ⚠️ 되돌리기 **실제로 해 봤습니다.** (2026-08-16)
+            · sustainThreshold → `onset * 0.55`            → 5건 실패 ✔ 잡힘
+            · noiseCeiling 의 `Math.max(dev, floor*0.12)`
+              → 그냥 `this.noiseDev` 로                     → 4건 실패 ✔ 잡힘
+            · sustainThreshold 에 `Math.min(onset*0.9, …)` 상한 도로 추가
+              → **통과**. 이 상한은 애초에 범인이 아니었습니다. 기록을 고쳤습니다. */
+  const AMBIENTS = [0.0010, 0.0030, 0.0050, 0.0080, 0.0120];
+  const VOICES = [0.05, 0.02];
+  const N = 4;
+
+  const misses = [];
+  for (const ambient of AMBIENTS) {
+    for (const voice of VOICES) {
+      const got = runMic({ ambient, voice, turns: N });
+      if (got.length !== N) {
+        misses.push(`밑소음 ${ambient.toFixed(4)} / 목소리 ${voice.toFixed(3)} → ${got.length}/${N}`);
+      }
+    }
+  }
+  check(
+    `${AMBIENTS.length * VOICES.length}가지 방에서 ${N}번 말하면 ${N}번 다 서버로 간다`,
+    misses.length === 0,
+    misses.join('  |  ')
+  );
+
+  /* 7-2 게이트가 열린 채 굳지 않는가.
+         닫히지 않으면 턴 하나가 통째로 정체 감시 시간(20초)까지 부풀어 오릅니다. */
+  const long = runMic({ ambient: 0.0050, voice: 0.05, turns: 4 });
+  const bloated = long.filter((ms) => ms > 15000);
+  check(
+    '턴 하나가 20초짜리 소음 덩어리로 부풀지 않는다',
+    bloated.length === 0,
+    `부푼 턴: ${bloated.map((m) => Math.round(m) + 'ms').join(', ')} — 게이트가 안 닫히고 있습니다`
+  );
+
+  /* 7-3 두 번째 턴부터 먹통이 되지 않는가 (목사님이 겪으신 그 증상).
+         정체 해제가 **최고음**을 소음으로 학습하면(옛 코드) 여기서 죽습니다. */
+  const many = runMic({ ambient: 0.0050, voice: 0.05, turns: 6 });
+  check(
+    '여섯 번 연달아 말해도 여섯 번 다 간다 (두 번째부터 먹통 아님)',
+    many.length === 6,
+    `서버가 받은 횟수 = ${many.length}`
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * [8] 긴 문장이 조각나지 않는다
+ *
+ * "짧은 문장 또는 단어는 이해하는데 긴 문장은 이해 못하네."
+ *
+ * 비원어민은 문장 한복판에서 단어를 찾느라 2~3초씩 멈춥니다.
+ * 말끝대기가 그보다 짧으면 한 문장이 여러 조각으로 잘려 나가고,
+ * 선생님은 첫 조각만 듣고 대답을 시작합니다.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+function testLongSentenceStaysWhole() {
+  console.log('\n[8] 긴 문장이 한 덩어리로 가는가');
+
+  /* 목사님이 실제로 하신 문장:
+     "Because today Sunday, ... I'm pastor, ... so I should be preaching twice time." */
+  const SENTENCE = [
+    { ms: 2200, speech: true },
+    { ms: 1800, speech: false },
+    { ms: 1400, speech: true },
+    { ms: 2600, speech: false },   // 여기가 문제였던 멈춤
+    { ms: 3200, speech: true },
+  ];
+
+  function speakSentence(endOfSpeech) {
+    let t = 0, phase = 0, open = false, openFrames = 0;
+    const got = [];
+    const mic = new MicStream({
+      onAudioFrame: () => { if (open) openFrames++; },
+      onActivity: (k) => {
+        if (k === 'start') { open = true; openFrames = 0; }
+        else { open = false; got.push(openFrames * FRAME_MS); }
+      },
+      onLevel: () => {}, onStreamedMs: () => {}, now: () => t,
+    });
+    mic.running = true;
+    mic.utterancePeak = 0;
+    mic.setEndOfSpeechMs(endOfSpeech);
+
+    const feed = (ms, rms, speech) => {
+      const n = Math.round(ms / FRAME_MS);
+      for (let i = 0; i < n; i++) {
+        mic._handleFrame(micFrame(speech ? rms * (i % 4 === 3 ? 0.35 : 1) : rms, (phase += 7)));
+        t += FRAME_MS;
+      }
+    };
+    feed(6000, 0.003, false);
+    for (const s of SENTENCE) feed(s.ms, s.speech ? 0.05 : 0.003, s.speech);
+    feed(6000, 0.003, false);
+    return got;
+  }
+
+  /* 8-1 ⚠️ 되돌리기 확인: api/_persona.js 의 ADULT_TUNING.intermediate
+         silenceDurationMs 를 1100 으로 되돌리면 여기서 반드시 실패합니다.
+         (1100ms 에서는 3조각으로 잘립니다) */
+  const dadWait = endOfSpeechMs(FAMILY_PROFILES.p_dad);
+  const pieces = speakSentence(dadWait);
+  check(
+    `'아빠' 실제 설정(${dadWait}ms)에서 긴 문장이 한 덩어리로 간다`,
+    pieces.length === 1,
+    `${pieces.length}조각으로 잘렸습니다 (${pieces.map((m) => Math.round(m) + 'ms').join(', ')}) — ` +
+      `조각나면 선생님이 첫 조각만 듣고 대답합니다`
+  );
+
+  /* 8-2 어떤 가족도 문장이 조각나는 속도로는 못 자르게 되어 있는가 */
+  const tooFast = Object.values(FAMILY_PROFILES)
+    .filter((p) => endOfSpeechMs(p) < MIN_END_OF_SPEECH_MS)
+    .map((p) => `${p.name}=${endOfSpeechMs(p)}ms`);
+  check(
+    `모든 가족의 말끝대기가 하한(${MIN_END_OF_SPEECH_MS}ms) 이상이다`,
+    tooFast.length === 0,
+    tooFast.join(', ')
+  );
+
+  /* 8-3 그렇다고 짧은 대답이 못 가면 안 됩니다 (고치다가 반대쪽을 깨는 것 방지) */
+  const shortAnswer = runMic({ ambient: 0.003, voice: 0.05, turns: 3, endOfSpeech: dadWait });
+  check(
+    '짧은 대답도 여전히 잘 간다',
+    shortAnswer.length === 3,
+    `서버가 받은 횟수 = ${shortAnswer.length}`
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * [9] 아무도 말하지 않았으면 서버에 보내지 않는다
+ *
+ * 이것이 "하지 않은 말을 지어낸다"를 막는 마지막 방어선입니다.
+ * api/talk.js 는 모델에게 "학생이 한 말을 받아쓰라"고 명령합니다.
+ * 잡음만 올려보내면 모델은 시키는 대로 **없는 말을 지어냅니다.**
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+function pcmFrom(segments) {
+  const out = [];
+  let phase = 0;
+  for (const s of segments) {
+    const n = Math.round((AUDIO.INPUT_SAMPLE_RATE * s.ms) / 1000);
+    const buf = new Int16Array(n);
+    for (let i = 0; i < n; i++) {
+      const wob = s.speech ? (Math.floor(i / 1600) % 4 === 3 ? 0.3 : 1) : 1;
+      buf[i] = Math.round(s.rms * wob * Math.SQRT2 * 32768 * Math.sin((phase += 0.05)));
+    }
+    out.push(buf);
+  }
+  return out;
+}
+
+function testSilenceIsNeverSentToTheModel() {
+  console.log('\n[9] 아무 말도 안 했으면 서버에 안 보내는가');
+
+  const NOISE_ONLY = [
+    ['아무도 말 안 한 방 20초', [{ ms: 20000, rms: 0.005, speech: false }]],
+    ['아무도 말 안 한 방 45초', [{ ms: 45000, rms: 0.005, speech: false }]],
+    ['에어컨 도는 방 20초', [{ ms: 20000, rms: 0.012, speech: false }]],
+    ['완전한 무음 10초', [{ ms: 10000, rms: 0, speech: false }]],
+  ];
+  for (const [name, segs] of NOISE_ONLY) {
+    const v = shouldSendAudio(pcmFrom(segs), AUDIO.INPUT_SAMPLE_RATE);
+    check(`${name} → 안 보낸다`, v.ok === false, `말소리 ${Math.round(v.speechMs)}ms 로 쟀습니다`);
+  }
+
+  /* 9-2 ⭐ 반대쪽이 훨씬 중요합니다.
+         아이 말을 지우는 건 어떤 경우에도 감수할 수 없는 대가입니다.
+         조용한 목소리, 한 단어 대답, 멈춤이 많은 긴 문장 — 전부 살아야 합니다. */
+  const REAL_SPEECH = [
+    ['"Yes." 한 마디', [{ ms: 700, rms: 0.004, speech: false }, { ms: 500, rms: 0.05, speech: true }, { ms: 700, rms: 0.004, speech: false }]],
+    ['조용조용 말하는 4살', [{ ms: 700, rms: 0.003, speech: false }, { ms: 900, rms: 0.015, speech: true }, { ms: 700, rms: 0.003, speech: false }]],
+    ['멈춤 많은 긴 문장', [{ ms: 1000, rms: 0.005, speech: false }, { ms: 2200, rms: 0.05, speech: true }, { ms: 2600, rms: 0.005, speech: false }, { ms: 1400, rms: 0.05, speech: true }, { ms: 2600, rms: 0.005, speech: false }, { ms: 3200, rms: 0.05, speech: true }]],
+    ['시끄러운 방에서 말함', [{ ms: 1000, rms: 0.012, speech: false }, { ms: 2000, rms: 0.06, speech: true }, { ms: 1000, rms: 0.012, speech: false }]],
+  ];
+  for (const [name, segs] of REAL_SPEECH) {
+    const frames = pcmFrom(segs);
+    const v = shouldSendAudio(frames, AUDIO.INPUT_SAMPLE_RATE);
+    const m = measureSpeech(frames, AUDIO.INPUT_SAMPLE_RATE);
+    check(
+      `${name} → 반드시 보낸다`,
+      v.ok === true,
+      `말소리를 ${Math.round(m.speechMs)}ms 로 쟀습니다 — 사람 말을 버리고 있습니다`
+    );
+  }
+}
+
+async function testRoomNoiseNeverReachesTalkApi() {
+  console.log('\n[10] 잡음 덩어리가 /api/talk 까지 흘러가지 않는가');
+
+  const notices = [];
+  const { session, calls } = await newSession({
+    onState: (_s, info) => { if (info?.message) notices.push(info.message); },
+  });
+
+  const sent = speak(session, roomNoiseFrames(20));
+  await sleep(60);
+
+  check('잡음만 든 20초는 보내지 않았다', sent === false);
+  check(
+    '/api/talk 을 부르지 않았다 (지어낼 기회를 안 준다)',
+    calls.talk.length === 0,
+    `실제 호출 ${calls.talk.length}번`
+  );
+  check(
+    '왜 안 보냈는지 화면에 알렸다 (조용한 폴백 금지)',
+    notices.some((m) => /말소리|주변 소리/.test(m)),
+    `화면에 나간 안내: ${JSON.stringify(notices)}`
+  );
+
+  /* 그리고 바로 다음에 진짜로 말하면 정상 동작해야 합니다 */
+  const ok = speak(session);
+  await sleep(300);
+  check('그 다음에 진짜로 말하면 정상으로 간다', ok === true && calls.talk.length === 1);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * [11] 정체 감시(워치독)가 돈 뒤에도 귀가 살아 있는가
+ *
+ * 왜 따로 만들었나 — 되돌리기 검증에서 구멍이 드러났습니다.
+ *   `_guardStuckOpen` 을 옛날처럼 `burstPeak * 0.6`(사람이 낸 **최고음**의 60%)
+ *   으로 되돌렸는데 테스트 [7]이 그냥 통과했습니다. 게이트가 이제 잘 닫혀서
+ *   워치독이 **아예 한 번도 안 돌았기** 때문입니다.
+ *   즉 [7]은 워치독 경로를 전혀 지키지 못하고 있었습니다.
+ *
+ * 그래서 워치독이 **반드시 돌 수밖에 없는** 상황을 만듭니다:
+ *   TV가 켜져 있거나 아이들이 25초 내내 떠드는 방. 게이트는 정당하게 계속
+ *   열려 있고, 20초(MAX_CONTINUOUS_STREAM_MS)를 넘겨 워치독이 발동합니다.
+ *   그 **직후에** 목사님이 평소 목소리로 말합니다. 들려야 합니다.
+ *
+ * 옛 코드는 여기서 밑소음을 0.05×0.6 = 0.030 으로 학습해 시작문턱을
+ * 0.044 까지 올려버립니다. 평소 목소리(0.022)는 영영 문턱을 못 넘습니다.
+ * → "두 번째부터는 잘 인식이 안 되네"의 또 다른 경로입니다.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+function testEarsSurviveTheWatchdog() {
+  console.log('\n[11] 워치독이 돌 때 무엇을 소음으로 배우는가');
+
+  const gate = new SilenceGate({
+    noiseDevK: COST.NOISE_DEV_K,
+    minSpeechRms: COST.MIN_SPEECH_RMS,
+    maxSpeechRms: COST.MAX_SPEECH_RMS,
+    tailMs: 800,
+    maxContinuousStreamMs: COST.MAX_CONTINUOUS_STREAM_MS,
+    noiseStarvedMs: COST.NOISE_STARVED_MS,
+    enabled: true,
+  });
+
+  /* 워치독이 실제로 발동한 순간의 게이트 상태를 그대로 재현합니다.
+     사람이 25초 동안 말했고(최고음 0.05), 그 사이 가장 조용한 순간은
+     단어 사이의 쉼(0.006)이었던 상황. */
+  gate.reset();
+  gate.state = GateState.SPEAKING;
+  gate.streamStartedAt = 0;
+  gate.lastLoudAt = 25_000;
+  gate.burstPeak = 0.05;
+  gate.burstFloor = 0.006;
+  gate.noiseFloor = 0.003;
+
+  const fired = gate._guardStuckOpen(25_000);
+  check(
+    '25초 넘게 열려 있으면 워치독이 실제로 닫는다',
+    fired === true,
+    `_guardStuckOpen 이 ${fired} 를 돌려줬습니다 — 안 돌면 아래 검사가 무의미합니다`
+  );
+
+  const learned = gate.noiseFloor;
+  const onsetAfter = gate.onsetThreshold();
+
+  /* 핵심: 무엇을 배웠는가.
+     - 바닥(0.006)을 배우면 밑소음은 0.007 언저리 → 평소 목소리가 잘 들립니다.
+     - 최고음의 60%(0.030)를 배우면 시작문턱이 0.044 까지 올라가서
+       평소 목소리(0.022)가 영영 문턱을 못 넘습니다. */
+  check(
+    '사람이 낸 최고음이 아니라 가장 조용했던 순간을 배운다',
+    learned < 0.012,
+    `배운 밑소음 = ${learned.toFixed(5)} (바닥 0.006 기준이면 0.007 언저리, ` +
+      `최고음 0.05 의 60% 를 배우면 0.030) ` +
+      `⚠️ 되돌리기 확인: gate.js 의 _guardStuckOpen 에서 \`floor * 1.15\` 를 ` +
+      `\`this.burstPeak * 0.6\` 으로 되돌리면 여기서 반드시 실패합니다.`
+  );
+
+  const NORMAL_VOICE = 0.022;
+  check(
+    '워치독이 돈 뒤에도 평소 목소리가 문턱을 넘는다',
+    NORMAL_VOICE > onsetAfter,
+    `평소 목소리 ${NORMAL_VOICE} vs 시작문턱 ${onsetAfter.toFixed(5)} — ` +
+      `문턱이 더 높으면 이 방에서는 두 번째 턴부터 아무 말도 안 들립니다`
+  );
+
+  /* 왜 이걸 mic.js 통째로가 아니라 게이트 단위로 검사하는가 — 계측 결과입니다.
+     _rescueNoiseStats 가 소음 구간 도중에 밑소음을 올려버려서 게이트가 TAIL 로
+     내려갔다 올라오고, 그때마다 streamStartedAt 이 초기화됩니다. 그래서 실제
+     방 소리로는 20초가 절대 안 쌓이고 워치독이 발동하지 못합니다.
+     (계측: TV 0.015~0.05 를 25초 넣어도 "열린지" 가 400ms 를 안 넘었습니다)
+     워치독은 이제 마지막 안전망일 뿐입니다. 그러니 안전망이 걸렸을 때
+     무엇을 배우는지를 여기서 직접 검사합니다. 방 소리로 흉내 내려 하면
+     되돌려도 실패하지 않는 **장식 테스트**가 됩니다. 실제로 그렇게 만들어
+     봤다가 옛 코드로 되돌려도 통과해서 이 방식으로 바꿨습니다. */
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
 async function main() {
@@ -354,6 +767,15 @@ async function main() {
   await testTtsFailureIsVisible();
   await testAudioReachesPlayer();
   testHeardNeverStealsReplyLine();
+
+  /* 2026-08-16 사고 — 아래 넷은 목사님이 실제로 겪으신 증상을 그대로 재현합니다.
+     [7]  두 번째 턴부터 먹통      [8]  긴 문장이 조각남
+     [9]  침묵을 모델에게 보냄     [10] 방 소음이 /api/talk 까지 도달 */
+  testEveryUtteranceReachesServer();
+  testLongSentenceStaysWhole();
+  testSilenceIsNeverSentToTheModel();
+  await testRoomNoiseNeverReachesTalkApi();
+  testEarsSurviveTheWatchdog();
 
   console.log('\n════════════════════════════════════════════════════════');
   if (failures === 0) {
