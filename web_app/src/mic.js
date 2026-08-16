@@ -179,6 +179,7 @@ export class MicStream {
       maxSpeechRms: COST.MAX_SPEECH_RMS,
       silenceTailMs: COST.SILENCE_TAIL_MS,
       maxContinuousStreamMs: COST.MAX_CONTINUOUS_STREAM_MS,
+      noiseStarvedMs: COST.NOISE_STARVED_MS,
       enabled: COST.SILENCE_GATE_ENABLED,
     });
 
