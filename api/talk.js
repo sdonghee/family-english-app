@@ -30,6 +30,7 @@ const {
   buildAdultInstruction,
 } = require('./_persona');
 const { CHILD_STAGES, getStage } = require('./_stages');
+const { parseTurnText } = require('./_parseTurn');
 
 /* 대화용 텍스트 모델 후보. 앞에서부터 시도합니다. */
 const TEXT_MODELS = [
@@ -192,17 +193,15 @@ module.exports = async function handler(req, res) {
       const rawText = parts.filter((p) => typeof p.text === 'string').map((p) => p.text).join('\n').trim();
 
       /* HEARD/REPLY 형식을 뜯어냅니다.
-         모델이 형식을 안 지키는 경우가 반드시 생기므로, 그때는 전체를
-         대사로 취급합니다. 여기서 빈손으로 돌아가면 앱이 멈춥니다. */
-      let heard = userText;
-      let reply = rawText;
-
-      const heardMatch = rawText.match(/^\s*HEARD:\s*(.*)$/im);
-      const replyMatch = rawText.match(/^\s*REPLY:\s*([\s\S]*)$/im);
-      if (replyMatch) {
-        reply = replyMatch[1].trim();
-        heard = heardMatch ? heardMatch[1].trim() : heard;
-      }
+         왜 따로 뺐나: 여기서 난 사고("REPLY:" 접두사가 아이 말풍선에
+         그대로 찍히고 선생님이 자문자답)가 화면까지 흘러갔기 때문에,
+         이 부분만 따로 검사할 수 있어야 합니다.
+         → api/_parseTurn.js, tools/turn-queue.test.mjs 참고 */
+      const { heard, reply, heardEmpty } = parseTurnText({
+        rawText,
+        userText,
+        hasAudio: !!audioB64,
+      });
 
       if (!reply && !toolCalls.length) {
         attempts.push({ model, status: 200, detail: '응답에 대사가 없습니다' });
@@ -213,6 +212,7 @@ module.exports = async function handler(req, res) {
         userText: heard,
         reply,
         toolCalls,
+        heardEmpty,
         model,
         ...(isChild ? { stage: stage.id, stageName: stage.name } : {}),
       });
