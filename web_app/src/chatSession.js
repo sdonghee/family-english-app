@@ -27,6 +27,7 @@
  */
 
 import { AUDIO } from './config.js';
+import { shouldSendAudio } from './speechEnergy.js';
 
 /** 세션 상태 — liveSession.js 와 같은 값을 씁니다 (app.js가 이 이름으로 비교합니다) */
 export const LiveState = {
@@ -276,6 +277,30 @@ export class ChatSession {
     /* 너무 짧으면 보내지 않습니다. 문 닫는 소리 한 번에 요금이 나가고,
        선생님이 "Sorry?" 만 반복하게 됩니다. (0.3초 미만) */
     if (total < AUDIO.INPUT_SAMPLE_RATE * 0.3) return false;
+
+    /* ⭐ 길이만 보면 안 됩니다. 게이트가 잘못 열려 있으면 **아무도 말하지 않은
+       방 안 소음 20초**도 이 검사를 가볍게 통과합니다. 그리고 그 잡음이
+       모델에게 "받아쓰라"는 명령과 함께 올라가면, 모델은 하지도 않은 말을
+       지어내서 대답합니다. 목사님이 겪으신 "혼자 대화하는" 증상의 원료입니다.
+
+       그래서 **말소리가 실제로 들어 있는지**를 재고 나서 보냅니다.
+       @see speechEnergy.js */
+    const verdict = shouldSendAudio(frames, AUDIO.INPUT_SAMPLE_RATE);
+    if (!verdict.ok) {
+      /* 조용히 삼키지 않습니다. 안 보냈다는 사실과 이유를 화면에 띄웁니다.
+         말없이 넘어가면 "말했는데 왜 반응이 없지?"의 원인을 못 찾습니다. */
+      this._setState(LiveState.LIVE, { message: verdict.reason });
+      this.h.onDropped?.({
+        reason: verdict.reason,
+        speechMs: Math.round(verdict.speechMs),
+        totalMs: Math.round(verdict.totalMs),
+      });
+      console.warn(
+        `[chatSession] 말소리가 부족해 보내지 않았습니다 — ` +
+        `말소리 ${Math.round(verdict.speechMs)}ms / 전체 ${Math.round(verdict.totalMs)}ms`
+      );
+      return false;
+    }
 
     /* 앞 턴이 아직 안 끝났으면 버리지 않고 모아둡니다. @see this._pendingFrames */
     if (this._busy) {
