@@ -21,6 +21,8 @@
 
 import { ChatSession, LiveState } from '../web_app/src/chatSession.js';
 import { AUDIO } from '../web_app/src/config.js';
+import parseTurnModule from '../api/_parseTurn.js';
+const { parseTurnText, HEARD_RE } = parseTurnModule;
 
 /* ── 아주 작은 검사 도구 (외부 라이브러리 없이) ─────────────────────────── */
 
@@ -227,6 +229,118 @@ async function testAudioReachesPlayer() {
   await session.disconnect();
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * [6] 선생님이 자기 말을 아이 말로 되받지 않는다
+ *
+ * 2026-08-16 실제 사고:
+ *   아이 말풍선에 "REPLY: I'm ready whenever you are! What did you do today?"
+ *   가 그대로 찍히고, 선생님이 그 말에 대답하며 혼자 대화를 이어갔습니다.
+ *
+ * 원인:
+ *   api/talk.js 의 `/^\s*HEARD:\s*(.*)$/im` 에서 `\s` 가 줄바꿈을 포함해,
+ *   HEARD 가 비어 있으면 다음 줄(REPLY 줄) 전체를 아이 말로 잡아갔습니다.
+ *
+ * 이 테스트를 깨는 법 (구멍이 되살아났는지 확인용):
+ *   api/_parseTurn.js 의 HEARD_RE 를 /^\s*HEARD:\s*(.*)$/im 으로 되돌리면
+ *   6-1 이 반드시 실패합니다.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+function testHeardNeverStealsReplyLine() {
+  console.log('\n[6] 선생님 대사가 아이 말로 둔갑하지 않는가');
+
+  /* 6-1 사고 당시의 그 입력 그대로 */
+  const crash = parseTurnText({
+    rawText: "HEARD:\nREPLY: I'm ready whenever you are! What did you do today?",
+    userText: '',
+    hasAudio: true,
+  });
+  check(
+    '빈 HEARD 가 다음 줄을 훔쳐가지 않는다',
+    crash.heard === '',
+    `heard=${JSON.stringify(crash.heard)}`
+  );
+  check(
+    '선생님 대사에는 접두사가 남지 않는다',
+    crash.reply === "I'm ready whenever you are! What did you do today?",
+    `reply=${JSON.stringify(crash.reply)}`
+  );
+  check(
+    '말소리가 없었다는 사실을 화면에 알릴 수 있다',
+    crash.heardEmpty === true,
+    `heardEmpty=${crash.heardEmpty}`
+  );
+
+  /* 6-2 정상적인 턴은 그대로 통과해야 합니다.
+        (아이 말을 지우는 건 어떤 경우에도 감수할 수 없는 대가입니다) */
+  const normal = parseTurnText({
+    rawText: 'HEARD: I goed to the park\nREPLY: You went to the park! That sounds fun.',
+    userText: '',
+    hasAudio: true,
+  });
+  check(
+    '아이가 한 말이 문법 교정 없이 그대로 남는다',
+    normal.heard === 'I goed to the park',
+    `heard=${JSON.stringify(normal.heard)}`
+  );
+  check('정상 턴은 빈 발화로 취급되지 않는다', normal.heardEmpty === false);
+
+  /* 6-3 모델이 형식을 아예 안 지킨 경우 —
+        아이 말을 버리지 말고, 전체를 선생님 대사로 살려야 합니다. */
+  const freeform = parseTurnText({
+    rawText: 'That sounds fun! Tell me more.',
+    userText: '',
+    hasAudio: true,
+  });
+  check(
+    '형식을 안 지켜도 대사는 살아남는다',
+    freeform.reply === 'That sounds fun! Tell me more.',
+    `reply=${JSON.stringify(freeform.reply)}`
+  );
+  check(
+    '형식 미준수를 빈 발화로 오해하지 않는다',
+    freeform.heardEmpty === false,
+    `heardEmpty=${freeform.heardEmpty}`
+  );
+
+  /* 6-4 글자로 보낸 턴은 아이가 친 글자가 그대로 남아야 합니다. */
+  const typed = parseTurnText({
+    rawText: 'REPLY: Nice to meet you too!',
+    userText: 'hello teacher',
+    hasAudio: false,
+  });
+  check(
+    '글자로 보낸 턴은 아이가 친 글자를 유지한다',
+    typed.heard === 'hello teacher',
+    `heard=${JSON.stringify(typed.heard)}`
+  );
+
+  /* 6-5 어떤 경로로든 형식 딱지가 묻은 글자는 아이 말로 내보내지 않습니다. */
+  const tainted = parseTurnText({
+    rawText: 'HEARD: REPLY: hello there\nREPLY: Hi!',
+    userText: '',
+    hasAudio: true,
+  });
+  check(
+    '형식 딱지가 묻은 글자는 아이 말풍선에 안 나간다',
+    !/^\s*(HEARD|REPLY)\s*:/i.test(tainted.heard),
+    `heard=${JSON.stringify(tainted.heard)}`
+  );
+
+  /* 6-6 ⚠️ 여기가 진짜 핵심입니다.
+        위 6-1 은 parseTurnText 안의 **이중 안전장치**("딱지가 묻었으면 버린다")
+        가 대신 막아주기 때문에, 정규식을 옛날 것으로 되돌려도 통과해 버립니다.
+        실제로 확인해 봤고, 통과했습니다. 그건 테스트가 아니라 장식입니다.
+
+        그래서 정규식 자체를 따로 검사합니다. 안전장치는 최후의 방어선이지
+        정규식이 틀려도 된다는 뜻이 아닙니다. 두 겹 다 성해야 합니다. */
+  const m = "HEARD:\nREPLY: hello".match(HEARD_RE);
+  check(
+    'HEARD 정규식이 줄바꿈을 절대 넘지 않는다',
+    !!m && m[1] === '',
+    `캡처=${JSON.stringify(m && m[1])} — \\s 는 줄바꿈을 포함합니다. [^\\S\\r\\n] 를 쓰세요.`
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
 async function main() {
@@ -239,6 +353,7 @@ async function main() {
   await testShortNoiseStillDropped();
   await testTtsFailureIsVisible();
   await testAudioReachesPlayer();
+  testHeardNeverStealsReplyLine();
 
   console.log('\n════════════════════════════════════════════════════════');
   if (failures === 0) {
