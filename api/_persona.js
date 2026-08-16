@@ -37,9 +37,35 @@ const FAMILY_PROFILES = {
   p_youngest: { name: '지율',   enName: 'Jiyul',    age: 4,  kind: 'child', defaultStage: 0, canRead: false },
 };
 
-/** 어른용 음성 설계값 */
+/**
+ * 말이 끝났다고 보기까지 기다릴 수 있는 **가장 짧은** 시간.
+ *
+ * 어떤 프로필도 이보다 빨리 자르지 못하게 막습니다.
+ * 짧게 자르면 한 문장이 여러 조각으로 쪼개지고, 선생님은 첫 조각만 듣고
+ * 대답을 시작합니다. 남은 조각은 그 대답 위로 새 턴이 되어 날아가서,
+ * 화면에는 **혼자 묻고 혼자 답하는 것처럼** 보입니다.
+ */
+const MIN_END_OF_SPEECH_MS = 1800;
+
+/**
+ * 어른용 음성 설계값
+ *
+ * ⚠️ 2026-08-16, silenceDurationMs 가 1100 이었습니다. 원어민 기준입니다.
+ *    비원어민은 문장 한복판에서 단어를 찾느라 2~3초씩 멈춥니다.
+ *    계측 결과, 목사님의 실제 문장
+ *    "Because today Sunday, ... I'm pastor, ... so I should be preaching twice time."
+ *    이 1100ms 에서 **3조각으로 잘려** 서버에 도착했습니다.
+ *    (조각 1 = 3760ms, 조각 2 = 2960ms, 조각 3 = 4720ms)
+ *
+ *    "짧은 문장은 알아듣는데 긴 문장은 못 알아듣는다"의 정체가 이것입니다.
+ *    짧은 대답은 멈춤이 없으니 한 조각으로 무사히 갔던 겁니다.
+ *
+ *    자르는 손해와 기다리는 손해는 **크기가 다릅니다.**
+ *    잘리면 대화 자체가 무너집니다. 기다리면 한 박자 늦을 뿐입니다.
+ *    그래서 넉넉한 쪽으로 잡습니다.
+ */
 const ADULT_TUNING = {
-  intermediate: { silenceDurationMs: 1100, koreanRatio: 12, voice: 'Kore' },
+  intermediate: { silenceDurationMs: 2600, koreanRatio: 12, voice: 'Kore' },
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -465,13 +491,16 @@ function buildLiveConfig(profile, context = {}) {
 
 /** 이 학습자에게 맞는 "말이 끝났다고 볼 때까지 기다리는 시간" (ms) */
 function endOfSpeechMs(profile, context = {}) {
-  return profile.kind === 'child'
+  const raw = profile.kind === 'child'
     ? getStage(context.stage ?? profile.defaultStage).silenceDurationMs
     : ADULT_TUNING[profile.level].silenceDurationMs;
+  // 어떤 프로필도 문장을 조각내는 속도로는 못 자릅니다. @see MIN_END_OF_SPEECH_MS
+  return Math.max(MIN_END_OF_SPEECH_MS, raw);
 }
 
 module.exports = {
   endOfSpeechMs,
+  MIN_END_OF_SPEECH_MS,
   FAMILY_PROFILES,
   ADULT_TUNING,
   TOOL_DEFS,
