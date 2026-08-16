@@ -340,13 +340,16 @@ export class ChatSession {
       this.h.onTurnComplete?.();
     }, 25_000);
 
+    /* 이 턴을 목소리로 보냈는지. 아래에서 자막 처리가 갈립니다. */
+    const sentAudio = !!(frames && frames.length);
+
     try {
       const payload = {
         profileId: this.profileId,
         context: this.context,
         history: this._history.slice(-12),
       };
-      if (frames && frames.length) {
+      if (sentAudio) {
         payload.audio = framesToWavBase64(frames, AUDIO.INPUT_SAMPLE_RATE);
         payload.audioMimeType = 'audio/wav';
       } else {
@@ -369,8 +372,24 @@ export class ChatSession {
         return;
       }
 
-      // 1) 아이가 한 말 (자막·기록용)
-      const heard = String(data.userText || seedText || '').trim();
+      /* 목소리로 보낸 턴인데 서버가 "말소리가 없었다"고 알려준 경우.
+         여기서 선생님이 대답하면 아무도 말하지 않았는데 혼자 떠드는
+         꼴이 되고, 그 대사가 다시 마이크로 들어가 자문자답이 됩니다.
+         턴을 접되 **반드시 눈에 보이게** 알립니다. */
+      if (data.heardEmpty && sentAudio) {
+        console.warn('[chat] 받아쓴 말이 비어 있어 이 턴을 넘깁니다');
+        this._setState(LiveState.LIVE, { message: '잘 못 들었어요. 한 번 더 말해 주세요.' });
+        return;
+      }
+
+      /* 1) 아이가 한 말 (자막·기록용)
+
+         ⚠️ 예전에 `data.userText || seedText` 로 적었다가 사고가 났습니다.
+            seedText 는 아이가 한 말이 아니라 **모델에게 주는 지시문**
+            ("[놀이 시작] 지금부터 …", "(The student just joined …)")
+            인 경우가 있습니다. 목소리로 보낸 턴에는 seedText 가 아예
+            없어야 하므로, 글자로 보낸 턴에서만 대체값으로 씁니다. */
+      const heard = String(data.userText || (sentAudio ? '' : seedText) || '').trim();
       if (heard && !silentUser) {
         this.h.onUserText?.(heard, true);
         this._history.push({ role: 'user', text: heard });
