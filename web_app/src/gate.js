@@ -37,6 +37,8 @@ export class SilenceGate {
     this.maxSpeechRms = opts.maxSpeechRms;
     this.silenceTailMs = opts.silenceTailMs;
     this.maxContinuousStreamMs = opts.maxContinuousStreamMs;
+    /** 이 시간 동안 소음 통계 갱신이 한 번도 없으면 추정기가 굶은 것으로 봅니다 */
+    this.noiseStarvedMs = opts.noiseStarvedMs ?? 4000;
     this.enabled = opts.enabled !== false;
 
     this.reset();
@@ -66,6 +68,19 @@ export class SilenceGate {
     this.tailStartedAt = 0;
     this.streamStartedAt = 0;
     this.burstPeak = 0;
+    /**
+     * 이번 발화 구간에서 관찰된 **가장 조용한** 순간.
+     *
+     * 게이트가 안 닫히고 계속 열려 있을 때, 그걸 붙잡고 있는 범인은
+     * 최고음이 아니라 **바닥에 깔린 소음**입니다. 그래서 최고음이 아니라
+     * 이 값을 보고 소음 기준을 다시 잡습니다. @see _guardStuckOpen
+     */
+    this.burstFloor = Infinity;
+    /**
+     * 소음 통계를 마지막으로 갱신한 시각. 0 이면 아직 모름.
+     * 이 값이 오래 멈춰 있으면 추정기가 굶고 있다는 뜻입니다. @see _rescueNoiseStats
+     */
+    this.lastNoiseUpdateAt = 0;
   }
 
   /**
@@ -118,8 +133,67 @@ export class SilenceGate {
    * 뒤에도 문턱이 올라간 채로 남아 조용조용 말하는 아이를 못 잡습니다.
    */
   baseThreshold() {
-    const estimate = this.noiseFloor + this.noiseDev * this.noiseDevK;
-    return Math.min(this.maxSpeechRms, Math.max(this.minSpeechRms, estimate));
+    return Math.min(this.maxSpeechRms, Math.max(this.minSpeechRms, this.noiseCeiling()));
+  }
+
+  /**
+   * 주변 소음이 실제로 닿는 꼭대기.
+   *
+   * ⚠️ 2026-08-16, 세 번째 고장. 여기가 가장 깊은 원인이었습니다.
+   *
+   *    소음이 **아주 고르면**(선풍기·에어컨·공기청정기처럼) 변동폭 추정치가
+   *    0 으로 수렴해 하한(0.0001)에 붙어버립니다. 그러면 소음 꼭대기와
+   *    소음 평균이 사실상 같아지고, 시작문턱과 유지문턱 사이의 간격이
+   *    사라집니다. 그 좁은 틈 **한가운데에 밑소음이 그대로 앉습니다.**
+   *
+   *    계측된 실제 숫자 (밑소음 0.00497 인 방):
+   *        유지문턱 0.00486  <  밑소음 0.00497  <  시작문턱 0.00540
+   *
+   *    → 소음만으로는 게이트가 안 열립니다. 그런데 사람이 한 번 말해서
+   *      열리고 나면, 그 다음부터는 소음이 유지문턱을 계속 넘어서
+   *      **영원히 안 닫힙니다.** 첫 문장은 잘 가고, 두 번째부터 먹통이 되는
+   *      "두 번째 턴부터 인식이 안 된다"가 정확히 이것이었습니다.
+   *
+   * 그래서 변동폭에 **밑소음에 비례한 최소 폭**을 보장합니다. 소음이 아무리
+   * 고르게 들려도 판단 여유를 그 위에 남겨둡니다.
+   */
+  noiseCeiling() {
+    const dev = Math.max(this.noiseDev, this.noiseFloor * 0.12);
+    return this.noiseFloor + dev * this.noiseDevK;
+  }
+
+  /**
+   * 말이 **이어지고 있다**고 볼 하한 (히스테리시스).
+   *
+   * ⚠️ 2026-08-16, 여기서 앱 전체가 멈추는 고장이 났습니다.
+   *
+   *    예전에는 그냥 `onset * 0.55` 였습니다. 그런데 onset 은 minSpeechRms
+   *    (0.0045)로 바닥이 막혀 있어서, 조용한 방에서도 하한이 0.00248 로
+   *    **고정**됩니다. 실제 거실의 밑소음은 0.003 안팎입니다.
+   *
+   *    → 밑소음이 하한보다 커서, 한 번 열린 게이트가 **영원히 안 닫혔습니다.**
+   *      게이트가 안 닫히면 activity:'end' 가 안 나가고, 그러면
+   *      chatSession 은 한 턴을 **아예 서버로 보내지 않습니다.**
+   *      목사님이 말을 해도 아무 일도 일어나지 않는, 가장 나쁜 고장이었습니다.
+   *      (Node 계측으로 재현: 밑소음 0.0025 이상이면 턴이 0개)
+   *
+   *    그래서 하한은 반드시 **지금 추정한 소음 꼭대기보다 위**에 있어야 합니다.
+   *
+   * ⚠️ 정정 (되돌리기 검증으로 확인한 것).
+   *    처음 고칠 때 여기에 `onset * 0.9` 상한을 걸었다가 나중에 지웠고,
+   *    "그 상한이 범인이었다"고 적어 두었습니다. **틀린 기록이었습니다.**
+   *    상한을 도로 넣고 회귀 테스트를 돌려 보니 그냥 통과했습니다.
+   *    noiseCeiling 이 제자리에 있으면 nc·0.85 ≤ onset·0.9 라서 상한이
+   *    걸릴 일이 아예 없습니다. 없어도 되는 코드였을 뿐, 고친 것은 아닙니다.
+   *
+   *    실제로 고친 곳은 noiseCeiling 의 **상대 하한**입니다.
+   *    그 한 줄을 빼면 회귀 테스트 [7]이 4건 실패합니다. @see noiseCeiling
+   *    간격이 모자라면 하한을 내릴 게 아니라 **시작문턱을 올려야** 합니다.
+   */
+  sustainThreshold() {
+    const onset = this.onsetThreshold();
+    // 소음 꼭대기의 85% — 소음보다는 위, 시작문턱보다는 아래.
+    return Math.max(onset * 0.55, this.noiseCeiling() * 0.85);
   }
 
   /** 선생님이 말하는 동안 문턱을 올립니다 (1 = 평소, 3~4 = 끼어들기만 허용) */
@@ -138,6 +212,7 @@ export class SilenceGate {
     this.streamStartedAt = now;
     this.tailStartedAt = now;
     this.burstPeak = 0;
+    this.burstFloor = Infinity;
     return true;
   }
 
@@ -157,6 +232,39 @@ export class SilenceGate {
 
     this.noiseFloor = Math.max(0.0002, Math.min(0.04, this.noiseFloor));
     this.noiseDev = Math.max(0.0001, Math.min(0.02, this.noiseDev));
+  }
+
+  /**
+   * 굶주린 추정기를 구조합니다.
+   *
+   * ⚠️ 2026-08-16, 두 번째 고장. 위의 _updateNoiseStats 는 **문턱보다 조용한
+   *    프레임에서만** 돌아갑니다. 그러니까 소음 추정치는 **아래로만 배우고
+   *    위로는 못 배웁니다.**
+   *
+   *    거실 밑소음이 문턱(minSpeechRms = 0.0045)보다 커지는 순간,
+   *    문턱 아래로 내려오는 프레임이 **단 하나도 없게 됩니다.** 갱신 기회가
+   *    영영 오지 않고, 추정치는 처음 값 0.002 에 그대로 굳습니다.
+   *    게이트는 아무도 말하지 않아도 계속 열려 있고, activity:'end' 는
+   *    영영 안 나갑니다. (계측으로 확인: 밑소음 0.0050 → 40프레임 내내 갱신 0회)
+   *
+   * 그래서 "한동안 갱신이 한 번도 없었다"를 병으로 보고, 그때는
+   * **이번 구간에서 관찰된 가장 조용한 순간(burstFloor)** 을 밑소음으로
+   * 받아들입니다. 사람이 말하는 중이라도 가장 조용한 순간은 말소리보다
+   * 훨씬 아래이므로, 목소리를 소음으로 배워버릴 위험이 낮습니다.
+   *
+   * (예전 _guardStuckOpen 은 정반대로 **최고음**을 배워서 마이크를 먹통으로
+   *  만들었습니다. 같은 실수를 반복하지 않기 위해 여기서도 바닥값만 씁니다.)
+   */
+  _rescueNoiseStats(now) {
+    if (this.lastNoiseUpdateAt === 0) { this.lastNoiseUpdateAt = now; return; }
+    if (now - this.lastNoiseUpdateAt < this.noiseStarvedMs) return;
+    this.lastNoiseUpdateAt = now;
+
+    const quiet = Number.isFinite(this.burstFloor) ? this.burstFloor : this.noiseFloor;
+    if (!(quiet > this.noiseFloor)) return;
+
+    this.noiseFloor = Math.min(0.04, quiet);
+    this.noiseDev = Math.min(0.02, Math.max(this.noiseDev, quiet * 0.15));
   }
 
   /**
@@ -181,12 +289,19 @@ export class SilenceGate {
 
     // 발화로 보이지 않는 프레임은 어느 상태에서든 소음 통계에 반영합니다.
     // ⚠️ 기준은 duck을 걸기 전 값입니다 (baseThreshold 주석 참고).
-    if (level < this.baseThreshold()) this._updateNoiseStats(level);
+    if (level < this.baseThreshold()) {
+      this._updateNoiseStats(level);
+      this.lastNoiseUpdateAt = now;
+    } else {
+      // 갱신 기회가 아예 안 오는 방(밑소음 > 문턱)에서는 추정기가 굶습니다.
+      this._rescueNoiseStats(now);
+    }
 
     // 히스테리시스: 시작 기준보다 낮은 값까지는 계속 말하는 것으로 인정합니다.
     // 시작/유지 기준이 같으면 경계에서 상태가 떨리고, 그때마다 타이머가
     // 초기화되어 게이트가 영영 안 닫힙니다.
-    const sustain = onset * 0.55;
+    // ⚠️ 다만 이 값이 밑소음보다 낮으면 그것대로 영영 안 닫힙니다. @see sustainThreshold
+    const sustain = this.sustainThreshold();
 
     switch (this.state) {
       case GateState.IDLE: {
@@ -197,6 +312,7 @@ export class SilenceGate {
           this.state = GateState.SPEAKING;
           this.streamStartedAt = now;
           this.burstPeak = level;
+          this.burstFloor = level;
           // 말 시작 직전 오디오를 먼저 보내 첫 음절을 살립니다
           return {
             send: true, flushPreroll: true, speech: true,
@@ -211,6 +327,7 @@ export class SilenceGate {
 
       case GateState.SPEAKING: {
         this.burstPeak = Math.max(this.burstPeak, level);
+        this.burstFloor = Math.min(this.burstFloor, level);
         const speech = level > sustain;
         if (!speech) {
           this.state = GateState.TAIL;
@@ -225,6 +342,7 @@ export class SilenceGate {
 
       case GateState.TAIL: {
         this.burstPeak = Math.max(this.burstPeak, level);
+        this.burstFloor = Math.min(this.burstFloor, level);
 
         // 이어서 말하는지는 **시작 기준(onset)** 으로 봅니다.
         // sustain으로 하면 히스테리시스가 사라져, 생활소음만으로도
@@ -232,6 +350,12 @@ export class SilenceGate {
         // 조용히 말하는 아이는 onset 자체가 소음 대비로 낮게 잡히므로 괜찮습니다.
         if (level > onset) {
           this.state = GateState.SPEAKING;
+          /* 방금 쉬었다가 다시 말했다 = 사람입니다.
+             정체 감시 타이머를 여기서 다시 겁니다.
+             감시의 목적은 "한 번도 안 쉬고 계속 나는 소리"를 잡는 것이지
+             길게 말하는 사람을 자르는 것이 아닙니다. 예전에는 이 초기화가
+             없어서, 쉬어가며 길게 말하면 누적 시간에 걸려 문장이 잘렸습니다. */
+          this.streamStartedAt = now;
           const closed = this._guardStuckOpen(now);
           // guard가 방금 닫았을 수도 있으므로 실제 상태를 보고 판단합니다.
           return {
@@ -273,11 +397,23 @@ export class SilenceGate {
   _guardStuckOpen(now) {
     if (now - this.streamStartedAt < this.maxContinuousStreamMs) return false;
 
-    // 이번 구간의 최대 음량을 소음으로 간주 → 다음부터는 이보다 커야 발화
-    this.noiseFloor = Math.min(0.04, Math.max(this.noiseFloor, this.burstPeak * 0.6));
-    this.noiseDev = Math.min(0.02, Math.max(this.noiseDev, this.burstPeak * 0.1));
+    /* 게이트를 붙잡고 있던 범인은 **바닥에 깔린 소음**입니다.
+     *
+     * ⚠️ 예전에는 여기서 `burstPeak * 0.6` 을 소음으로 학습했습니다.
+     *    최고음의 60% — 즉 **사람이 낸 가장 큰 목소리의 60%** 를 문턱으로
+     *    삼는다는 뜻입니다. 한 번 이게 걸리면 그 뒤로는 아무리 말해도
+     *    문턱을 못 넘습니다. "두 번째 턴부터 말을 못 알아듣는다"의 정체가
+     *    이것이었습니다. 소음을 배우려다 사람 목소리를 배워버린 겁니다.
+     *
+     * 이번 구간의 **가장 조용한 순간**을 소음으로 봅니다. 그 위로 살짝만
+     * 올리면 밑소음으로는 안 열리고, 사람 목소리로는 여전히 열립니다.
+     */
+    const floor = Number.isFinite(this.burstFloor) ? this.burstFloor : this.noiseFloor;
+    this.noiseFloor = Math.min(0.04, Math.max(this.noiseFloor, floor * 1.15));
+    this.noiseDev = Math.min(0.02, Math.max(this.noiseDev, floor * 0.15));
     this.state = GateState.IDLE;
     this.burstPeak = 0;
+    this.burstFloor = Infinity;
     return true;
   }
 
@@ -298,6 +434,7 @@ export class SilenceGate {
     const wasOpen = this.state !== GateState.IDLE;
     this.state = GateState.IDLE;
     this.burstPeak = 0;
+    this.burstFloor = Infinity;
     return wasOpen;
   }
 }
