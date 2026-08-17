@@ -688,6 +688,112 @@ async function testRoomNoiseNeverReachesTalkApi() {
  * → "두 번째부터는 잘 인식이 안 되네"의 또 다른 경로입니다.
  * ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * [12] 2026-08-18 사고 — "아주 큰소리로 대화해야 이해한다"
+ *
+ * 목사님 신고 그대로:
+ *   "아주 큰소리로 대화해야 이해하고, 긴문장은 전혀 받아들이지 못해,
+ *    단어나 짧은 문장만 이해해"
+ *
+ * 원인은 gate.js 의 _rescueNoiseStats 였습니다. 소음 통계 갱신이 4초 넘게
+ * 없으면 "이번 구간의 가장 조용한 순간"을 밑소음으로 받아들였는데, 사람이
+ * 4초 넘게 이어서 말하면 **그 조용한 순간이 사람 목소리**였습니다.
+ * 계측: 6초 연속 발화 뒤 시작문턱 0.00679 → 0.04677 (6.9배).
+ *
+ * ⚠️ 되돌리기 확인 방법:
+ *    _rescueNoiseStats 를 되살리고 process() 의 else 가지를 복구하면
+ *    12-1 과 12-2 가 반드시 실패합니다. 실패하지 않으면 이 테스트는 장식입니다.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+function testThresholdNeverLearnsTheHumanVoice() {
+  console.log('\n[12] 오래 말해도 문턱이 사람 목소리 위로 올라가지 않는가');
+
+  const NORMAL_VOICE = 0.025;   // 보통 대화 목소리 RMS
+  const ROOM = 0.004;           // 조용한 거실 밑소음
+
+  function freshGate() {
+    return new SilenceGate({
+      noiseDevK: COST.NOISE_DEV_K,
+      minSpeechRms: COST.MIN_SPEECH_RMS,
+      maxSpeechRms: COST.MAX_SPEECH_RMS,
+      silenceTailMs: COST.SILENCE_TAIL_MS,
+      maxContinuousStreamMs: COST.MAX_CONTINUOUS_STREAM_MS,
+    });
+  }
+
+  /** 일정한 세기의 소리를 ms 만큼 흘려넣습니다. */
+  function pour(g, t0, level, ms, jitter = 0.12) {
+    let t = t0;
+    for (let i = 0; i < Math.round(ms / FRAME_MS); i++) {
+      g.process(Math.max(0, level * (1 + (Math.random() * 2 - 1) * jitter)), t);
+      t += FRAME_MS;
+    }
+    return t;
+  }
+
+  /* 12-1 ── 6초 연속 발화 뒤에도 보통 목소리로 마이크가 열려야 합니다. */
+  {
+    const g = freshGate();
+    let t = pour(g, 0, ROOM, 3000);
+    t = pour(g, t, NORMAL_VOICE, 6000, 0.10);   // 쉬지 않고 6초 말하기
+    t = pour(g, t, ROOM, 3000);
+    const onset = g.onsetThreshold();
+    check(
+      `6초 연속 발화 뒤에도 보통 목소리(${NORMAL_VOICE})가 문턱을 넘는다`,
+      NORMAL_VOICE > onset,
+      `시작문턱이 ${onset.toFixed(5)} 까지 올라갔습니다. ` +
+      `이러면 소리를 질러야만 마이크가 열립니다. (gate.js 의 소음 학습을 의심하세요)`,
+    );
+  }
+
+  /* 12-2 ── 정체 감시(20초)가 발동한 뒤에도 마찬가지여야 합니다. */
+  {
+    const g = freshGate();
+    let t = pour(g, 0, ROOM, 3000);
+    t = pour(g, t, 0.030, COST.MAX_CONTINUOUS_STREAM_MS + 1500, 0.05);  // TV 소음
+    const onset = g.onsetThreshold();
+    check(
+      `정체 감시 발동 뒤에도 보통 목소리(${NORMAL_VOICE})가 문턱을 넘는다`,
+      NORMAL_VOICE > onset,
+      `시작문턱이 ${onset.toFixed(5)}. _guardStuckOpen 이 사람 목소리를 소음으로 배웠습니다.`,
+    );
+  }
+
+  /* 12-3 ── 문턱 천장 자체가 사람 목소리 아래에 있어야 합니다.
+             이건 위 두 검사의 **근본 보증**입니다. 천장이 목소리 위로
+             올라가면 어떤 학습 사고든 다시 마이크를 먹통으로 만듭니다. */
+  check(
+    `문턱 천장(MAX_SPEECH_RMS=${COST.MAX_SPEECH_RMS})이 보통 목소리보다 낮다`,
+    COST.MAX_SPEECH_RMS < NORMAL_VOICE,
+    `천장이 ${COST.MAX_SPEECH_RMS} 입니다. 보통 목소리(${NORMAL_VOICE})보다 낮아야 ` +
+    `소음 추정이 아무리 어긋나도 마이크가 살아 있습니다.`,
+  );
+
+  /* 12-4 ── 히스테리시스가 절대 뒤집히지 않아야 합니다.
+             유지문턱 > 시작문턱 이면 게이트가 열리는 즉시 꼬리로 떨어져서
+             무슨 말을 해도 짧은 조각으로만 잘립니다. 천장을 도입했을 때
+             실제로 이 일이 났습니다 (시작 0.01800 < 유지 0.02448). */
+  {
+    let worst = null;
+    for (const noise of [0.001, 0.004, 0.009, 0.015, 0.03, 0.05]) {
+      for (const duck of [1, 2, 3.5]) {
+        const g = freshGate();
+        let t = pour(g, 0, noise, 8000);
+        g.setDuck(duck);
+        const onset = g.onsetThreshold();
+        const sustain = g.sustainThreshold();
+        if (sustain >= onset) worst = { noise, duck, onset, sustain };
+      }
+    }
+    check(
+      '어떤 소음·duck 조합에서도 유지문턱이 시작문턱보다 낮다',
+      worst === null,
+      worst && `밑소음 ${worst.noise}, duck ${worst.duck} 에서 ` +
+        `시작 ${worst.onset.toFixed(5)} ≤ 유지 ${worst.sustain.toFixed(5)} — 히스테리시스가 뒤집혔습니다.`,
+    );
+  }
+}
+
 function testEarsSurviveTheWatchdog() {
   console.log('\n[11] 워치독이 돌 때 무엇을 소음으로 배우는가');
 
@@ -776,6 +882,9 @@ async function main() {
   testSilenceIsNeverSentToTheModel();
   await testRoomNoiseNeverReachesTalkApi();
   testEarsSurviveTheWatchdog();
+
+  /* 2026-08-18 사고 — "아주 큰소리로 대화해야 이해한다" */
+  testThresholdNeverLearnsTheHumanVoice();
 
   console.log('\n════════════════════════════════════════════════════════');
   if (failures === 0) {
