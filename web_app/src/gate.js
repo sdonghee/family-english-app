@@ -193,7 +193,27 @@ export class SilenceGate {
   sustainThreshold() {
     const onset = this.onsetThreshold();
     // 소음 꼭대기의 85% — 소음보다는 위, 시작문턱보다는 아래.
-    return Math.max(onset * 0.55, this.noiseCeiling() * 0.85);
+    const want = Math.max(onset * 0.55, this.noiseCeiling() * 0.85);
+
+    /* ⚠️ 2026-08-18. 위 정정 기록("상한은 걸릴 일이 없다")이 **다시 틀렸습니다.**
+     *
+     *    maxSpeechRms 천장(0.018)을 도입하자 onset 은 천장에 눌려 멈추는데
+     *    noiseCeiling 은 계속 올라갑니다. 그러면 처음으로 nc·0.85 > onset 이
+     *    됩니다. 계측된 실제 숫자:
+     *        시작문턱 0.01800  <  유지문턱 0.02448
+     *
+     *    유지문턱이 시작문턱보다 높으면 히스테리시스가 **뒤집힙니다.**
+     *    게이트가 열리는 순간(level > onset) 그 값이 이미 sustain 아래라서
+     *    곧바로 TAIL 로 떨어지고, 꼬리 시간만 지나면 닫힙니다.
+     *    → 무슨 말을 해도 짧은 조각으로만 잘립니다.
+     *      "긴문장은 전혀 받아들이지 못해"가 이 모양으로 재발합니다.
+     *
+     *    그래서 유지문턱은 **반드시 시작문턱보다 아래**로 자릅니다.
+     *    소음 꼭대기를 못 넘겨서 게이트가 안 닫히는 경우는
+     *    _guardStuckOpen(20초)과 speechEnergy.js 가 받아냅니다.
+     *    "안 닫히는 것"은 회복 경로가 있지만, "열리자마자 닫히는 것"은 없습니다.
+     */
+    return Math.min(want, onset * 0.9);
   }
 
   /** 선생님이 말하는 동안 문턱을 올립니다 (1 = 평소, 3~4 = 끼어들기만 허용) */
@@ -249,11 +269,27 @@ export class SilenceGate {
    *
    * 그래서 "한동안 갱신이 한 번도 없었다"를 병으로 보고, 그때는
    * **이번 구간에서 관찰된 가장 조용한 순간(burstFloor)** 을 밑소음으로
-   * 받아들입니다. 사람이 말하는 중이라도 가장 조용한 순간은 말소리보다
-   * 훨씬 아래이므로, 목소리를 소음으로 배워버릴 위험이 낮습니다.
+   * 받아들입니다.
    *
-   * (예전 _guardStuckOpen 은 정반대로 **최고음**을 배워서 마이크를 먹통으로
-   *  만들었습니다. 같은 실수를 반복하지 않기 위해 여기서도 바닥값만 씁니다.)
+   * ⚠️ 2026-08-18. 이 함수를 한 번 통째로 지웠다가 되돌렸습니다. 기록해 둡니다.
+   *
+   *    "아주 큰소리로 대화해야 이해한다"는 신고를 받고, 6초 연속 발화를
+   *    합성해 돌려보니 문턱이 0.0068 → 0.0468 로 뛰었습니다. 범인으로 보고
+   *    지웠더니 회귀 테스트 [7]이 3건 무너졌습니다 — 굶주림이 되살아난 것입니다.
+   *
+   *    다시 보니 **제 합성음이 틀렸습니다.** 6초 내내 세기가 평평한 소리를
+   *    넣었는데, 실제 사람 말은 단어와 음절 사이에서 세기가 크게 꺼집니다
+   *    (테스트 [7]/[8]의 파형은 320ms마다 35%까지 떨어집니다).
+   *    그런 파형에서는 burstFloor 가 진짜로 낮게 잡혀서 이 구조가 안전합니다.
+   *
+   *    진짜 문제는 이 함수가 아니라 **문턱에 천장이 없었던 것**이었습니다.
+   *    학습이 어디로 튀든 문턱이 사람 목소리 위로 올라갈 수 있었던 게 병입니다.
+   *    그래서 maxSpeechRms 를 0.055 → 0.018 로 내려 천장을 박았습니다.
+   *    이제 이 함수가 무엇을 배우든 문턱은 0.018 을 못 넘고,
+   *    보통 목소리(0.02~0.05)는 **언제나** 마이크를 엽니다. @see config.js
+   *
+   *    교훈: 합성 신호로 계측할 때는 **그 신호가 실제와 닮았는지부터** 의심할 것.
+   *    닮지 않은 입력으로 잰 숫자는 계측이 아니라 잘 꾸민 추측입니다.
    */
   _rescueNoiseStats(now) {
     if (this.lastNoiseUpdateAt === 0) { this.lastNoiseUpdateAt = now; return; }
@@ -263,8 +299,12 @@ export class SilenceGate {
     const quiet = Number.isFinite(this.burstFloor) ? this.burstFloor : this.noiseFloor;
     if (!(quiet > this.noiseFloor)) return;
 
-    this.noiseFloor = Math.min(0.04, quiet);
-    this.noiseDev = Math.min(0.02, Math.max(this.noiseDev, quiet * 0.15));
+    /* ⚠️ 2026-08-18. 여기에도 천장을 겁니다 (_guardStuckOpen 과 같은 이유).
+     *    이 구조 하나만으로 문턱이 사람 목소리 위로 올라가는 일은 없어야 합니다.
+     *    maxSpeechRms(0.018)는 보통 대화 목소리(0.02~0.05)보다 **아래**입니다. */
+    const cap = this.maxSpeechRms;
+    this.noiseFloor = Math.min(0.04, cap, quiet);
+    this.noiseDev = Math.min(0.02, cap * 0.15, Math.max(this.noiseDev, quiet * 0.15));
   }
 
   /**
@@ -294,6 +334,8 @@ export class SilenceGate {
       this.lastNoiseUpdateAt = now;
     } else {
       // 갱신 기회가 아예 안 오는 방(밑소음 > 문턱)에서는 추정기가 굶습니다.
+      // ⚠️ 이 가지를 지웠다가 회귀 테스트 [7]이 3건 무너져 되돌렸습니다.
+      //    @see _rescueNoiseStats 의 2026-08-18 기록
       this._rescueNoiseStats(now);
     }
 
@@ -408,9 +450,22 @@ export class SilenceGate {
      * 이번 구간의 **가장 조용한 순간**을 소음으로 봅니다. 그 위로 살짝만
      * 올리면 밑소음으로는 안 열리고, 사람 목소리로는 여전히 열립니다.
      */
+    /* ⚠️ 2026-08-18. 여기에도 천장이 필요합니다.
+     *
+     *    계측: 정체 감시가 한 번 발동하면 시작문턱이 0.0067 → 0.0443 으로
+     *    뛰었고, 조용히 10초를 기다려도 0.0274 에서 안 내려왔습니다.
+     *    그 사이 보통 목소리(0.025)로는 마이크가 아예 안 열립니다.
+     *
+     *    바닥값만 배우니 안전하다고 생각했지만, 20초 동안 **사람이 계속
+     *    말한 경우**에는 그 바닥값도 사람 목소리입니다. 그래서 학습 결과가
+     *    문턱 천장(maxSpeechRms)을 넘지 않도록 자릅니다. 소음이 정말 그보다
+     *    크면 게이트는 계속 열리겠지만, 그건 speechEnergy.js 가 걸러냅니다.
+     *    **마이크가 먹통이 되는 것보다는 낫습니다.**
+     */
+    const cap = this.maxSpeechRms;
     const floor = Number.isFinite(this.burstFloor) ? this.burstFloor : this.noiseFloor;
-    this.noiseFloor = Math.min(0.04, Math.max(this.noiseFloor, floor * 1.15));
-    this.noiseDev = Math.min(0.02, Math.max(this.noiseDev, floor * 0.15));
+    this.noiseFloor = Math.min(0.04, cap, Math.max(this.noiseFloor, floor * 1.15));
+    this.noiseDev = Math.min(0.02, cap * 0.15, Math.max(this.noiseDev, floor * 0.15));
     this.state = GateState.IDLE;
     this.burstPeak = 0;
     this.burstFloor = Infinity;
