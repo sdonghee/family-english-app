@@ -816,6 +816,11 @@ function testEarsSurviveTheWatchdog() {
   gate.lastLoudAt = 25_000;
   gate.burstPeak = 0.05;
   gate.burstFloor = 0.006;
+  /* 2026-08-18(세 번째). 워치독이 읽는 값이 burstFloor 에서 **시간 창의
+     바닥값**으로 바뀌었습니다. 그래서 여기도 창을 채워 줍니다.
+     안 채우면 워치독이 아무것도 못 배워서, 되돌려도 통과하는 장식 테스트가 됩니다.
+     @see gate.js _observeAmbient */
+  gate.ambientMin = 0.006;
   gate.noiseFloor = 0.003;
 
   const fired = gate._guardStuckOpen(25_000);
@@ -860,6 +865,163 @@ function testEarsSurviveTheWatchdog() {
      봤다가 옛 코드로 되돌려도 통과해서 이 방식으로 바꿨습니다. */
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * [13] 2026-08-18 (세 번째) — "여러 턴 대화하면 점점 못 알아듣는다"
+ *
+ * 목사님 신고 그대로: 말을 안 알아듣는다 / 문장이 중간에 끊긴다 /
+ * 선생님이 말을 지어낸다 / 느리다. 넷 다 **한 가지 원인**에서 나옵니다.
+ *
+ * 위 [7][8][12] 가 왜 이걸 못 잡았는가 — 파형이 틀렸기 때문입니다.
+ * 그 테스트들은 세기가 **거의 평평한** 소리를 씁니다. 실제 사람 말은
+ * 음절마다(약 280ms) 세기가 크게 꺼집니다. 그리고 [7][8][12] 는 한두 턴만
+ * 봅니다. 이 병은 **턴이 쌓이면서** 문턱이 조금씩 기어오르는 병입니다.
+ *
+ * 그래서 여기서만:
+ *   ① 음절 포락선이 있는 파형을 쓰고   ② 8턴을 이어서 돌립니다.
+ *
+ * ⚠️ 되돌리기 확인 방법 (실제로 되돌려 보고 확인한 것만 적습니다):
+ *    _rescueNoiseStats / _guardStuckOpen 의 `this.ambientFloor()` 를
+ *    예전처럼 `this.burstFloor` 로 되돌리면 아래 13-2, 13-3 이
+ *    신고된 증상 그대로("시작 0 · 끝 0, 그때 시작문턱 0.01800") 실패합니다.
+ *    실패하지 않으면 이 테스트는 장식입니다.
+ *
+ *    한때 process() 에 `&& this.state !== GateState.SPEAKING` 를 붙이는 것도
+ *    고침의 일부라고 적어 두었는데, 되돌려 봤더니 **아무 테스트도 안 깨졌습니다.**
+ *    그래서 그 조건은 코드에서 뺐습니다. @see gate.js process()
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+function testThresholdDoesNotDriftOverManyTurns() {
+  console.log('\n[13] 여러 턴 대화해도 문턱이 기어오르지 않는가 (음절이 있는 진짜 파형)');
+
+  const ROOM = 0.0035;        // 조용한 집
+  const ADULT = 0.032;        // 어른 보통 목소리
+  const QUIET_CHILD = 0.012;  // 조용조용 말하는 4살
+
+  /* 돌릴 때마다 숫자가 달라지면 "고쳤다"를 증명할 수 없습니다. 씨앗을 고정합니다. */
+  let seed = 20260818;
+  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+
+  function freshGate() {
+    return new SilenceGate({
+      noiseDevK: COST.NOISE_DEV_K,
+      minSpeechRms: COST.MIN_SPEECH_RMS,
+      maxSpeechRms: COST.MAX_SPEECH_RMS,
+      silenceTailMs: COST.SILENCE_TAIL_MS,
+      maxContinuousStreamMs: COST.MAX_CONTINUOUS_STREAM_MS,
+      noiseStarvedMs: COST.NOISE_STARVED_MS,
+    });
+  }
+
+  /** 사람 말: 280ms 주기로 세기가 30% 까지 꺼집니다. 이게 이 테스트의 핵심입니다. */
+  function speak(g, t0, peak, ms) {
+    let t = t0, starts = 0, ends = 0;
+    for (let i = 0; i < Math.round(ms / FRAME_MS); i++) {
+      const syl = 0.30 + 0.70 * Math.pow(Math.abs(Math.cos((Math.PI * i * FRAME_MS) / 280)), 0.7);
+      const r = g.process(Math.max(0, peak * syl * (1 + (rnd() * 2 - 1) * 0.12)), t);
+      if (r.activity === 'start') starts++;
+      if (r.activity === 'end') ends++;
+      t += FRAME_MS;
+    }
+    return { t, starts, ends };
+  }
+
+  function room(g, t0, ms) {
+    let t = t0, starts = 0, ends = 0;
+    for (let i = 0; i < Math.round(ms / FRAME_MS); i++) {
+      const r = g.process(Math.max(0, ROOM * (1 + (rnd() * 2 - 1) * 0.25)), t);
+      if (r.activity === 'start') starts++;
+      if (r.activity === 'end') ends++;
+      t += FRAME_MS;
+    }
+    return { t, starts, ends };
+  }
+
+  /** 한 턴 = 앞 침묵 + 말 + 뒤 침묵(꼬리보다 길게). */
+  function turn(g, t, peak, speechMs) {
+    let starts = 0, ends = 0, r;
+    r = room(g, t, 1200); t = r.t;
+    r = speak(g, t, peak, speechMs); t = r.t; starts += r.starts; ends += r.ends;
+    r = room(g, t, COST.SILENCE_TAIL_MS + 1200); t = r.t; starts += r.starts; ends += r.ends;
+    return { t, starts, ends };
+  }
+
+  /* 13-1 ── 8턴을 이어서 말해도 매 턴이 **딱 한 덩어리**로 잡혀야 합니다.
+             조각나면 → 선생님이 반토막 문장을 받고 나머지를 지어냅니다.
+             아예 안 잡히면 → 말을 해도 아무 일도 안 일어납니다. */
+  {
+    const g = freshGate();
+    let t = 0;
+    const bad = [];
+    for (let i = 1; i <= 8; i++) {
+      const r = turn(g, t, ADULT, 4000);
+      t = r.t;
+      if (r.starts !== 1 || r.ends !== 1) {
+        bad.push(`${i}턴: 시작 ${r.starts}·끝 ${r.ends} (문턱 ${g.onsetThreshold().toFixed(5)})`);
+      }
+    }
+    check(
+      '어른이 8턴 이어서 말해도 매 턴이 한 덩어리로 잡힌다',
+      bad.length === 0,
+      `어긋난 턴 — ${bad.join(' / ')}  ` +
+      `말한 만큼 안 잡히면 선생님은 못 받은 부분을 지어냅니다.`,
+    );
+  }
+
+  /* 13-2 ── 8턴 뒤에도 문턱이 **조용한 아이 목소리 아래**에 있어야 합니다.
+             비율("1.5배 이내")로 재면 안 됩니다. 첫 턴부터 이미 높아져 있으면
+             비율은 멀쩡해 보이는데 아이는 여전히 안 들립니다. 실제로 그렇게
+             써 봤다가 되돌려도 통과해서 절대값 기준으로 바꿨습니다.
+             계측(고치기 전): 1턴 0.00590 → 2턴부터 천장 0.01800 에 눌러붙음. */
+  {
+    const g = freshGate();
+    let t = 0;
+    t = turn(g, t, ADULT, 4000).t;
+    const first = g.onsetThreshold();
+    for (let i = 0; i < 7; i++) t = turn(g, t, ADULT, 4000).t;
+    const last = g.onsetThreshold();
+    check(
+      `어른이 8턴 말해도 시작문턱이 조용한 아이 목소리(${QUIET_CHILD}) 아래에 남는다`,
+      last < QUIET_CHILD,
+      `첫 턴 ${first.toFixed(5)} → 8턴 뒤 ${last.toFixed(5)}. ` +
+      `아빠가 말할수록 문턱이 올라가서, 옆에 있던 아이가 점점 안 들리게 됩니다.`,
+    );
+  }
+
+  /* 13-3 ── 어른이 실컷 말한 뒤에 조용한 아이가 말해도 들려야 합니다.
+             이 집의 실제 상황입니다(아빠가 말하고 4살이 대답). 고치기 전에는
+             문턱이 0.018 이라 0.012 인 아이는 마이크를 **아예 못 열었습니다.** */
+  {
+    const g = freshGate();
+    let t = 0;
+    for (let i = 0; i < 6; i++) t = turn(g, t, ADULT, 4000).t;
+    const onset = g.onsetThreshold();
+    const r = turn(g, t, QUIET_CHILD, 3000);
+    check(
+      `어른이 6턴 말한 뒤에도 조용한 4살(${QUIET_CHILD})의 말이 잡힌다`,
+      r.starts === 1 && r.ends === 1,
+      `시작 ${r.starts}·끝 ${r.ends}, 그때 시작문턱 ${onset.toFixed(5)}. ` +
+      `문턱이 아이 목소리 위면 아이는 아무리 말해도 화면이 반응하지 않습니다.`,
+    );
+  }
+
+  /* 13-4 ── 12초짜리 긴 문장이 통째로 가야 합니다.
+             [8] 이 이미 보지만, 거긴 첫 턴이고 파형이 평평합니다.
+             여기서는 **4턴 대화한 뒤** 음절이 있는 파형으로 봅니다. */
+  {
+    for (const [peak, who] of [[ADULT, '어른'], [QUIET_CHILD, '조용한 아이']]) {
+      const g = freshGate();
+      let t = 0;
+      for (let i = 0; i < 4; i++) t = turn(g, t, peak, 3000).t;
+      const r = turn(g, t, peak, 12_000);
+      check(
+        `4턴 대화한 뒤 ${who}의 12초 긴 문장이 한 덩어리로 간다`,
+        r.starts === 1 && r.ends === 1,
+        `조각 ${r.starts}개 · 끝신호 ${r.ends}개 — 문장이 잘리면 선생님이 나머지를 지어냅니다.`,
+      );
+    }
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
 async function main() {
@@ -885,6 +1047,9 @@ async function main() {
 
   /* 2026-08-18 사고 — "아주 큰소리로 대화해야 이해한다" */
   testThresholdNeverLearnsTheHumanVoice();
+
+  /* 2026-08-18 (세 번째) — "여러 턴 대화하면 점점 못 알아듣는다" */
+  testThresholdDoesNotDriftOverManyTurns();
 
   console.log('\n════════════════════════════════════════════════════════');
   if (failures === 0) {
