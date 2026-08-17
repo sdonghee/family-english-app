@@ -81,6 +81,56 @@ export class SilenceGate {
      * 이 값이 오래 멈춰 있으면 추정기가 굶고 있다는 뜻입니다. @see _rescueNoiseStats
      */
     this.lastNoiseUpdateAt = 0;
+
+    /* 방의 조용한 바닥값을 재는 **게이트와 무관한** 창(窓).
+     * @see _observeAmbient — 왜 이게 따로 필요한지 그 주석에 적어 두었습니다. */
+    this.ambientMin = Infinity;
+    this.ambientPrevMin = Infinity;
+    this.ambientWindowStartedAt = 0;
+  }
+
+  /**
+   * 방의 밑바닥 소리를 **게이트 상태와 상관없이** 계속 지켜봅니다.
+   *
+   * ⚠️ 2026-08-18(세 번째). 이게 왜 따로 필요한지가 이번 진단의 핵심입니다.
+   *
+   *    구조(_rescueNoiseStats)와 정체감시(_guardStuckOpen)는 지금까지
+   *    **burstFloor** — "이번에 열린 구간에서 가장 조용했던 순간" — 을 방의
+   *    소음으로 받아들였습니다. 그런데 그 구간은 **사람이 말해서 열린 구간**
+   *    입니다. 즉 그 안의 가장 조용한 순간도 여전히 **사람 목소리**입니다.
+   *
+   *    계측 (조용한 방 0.0035, 어른 0.032, 6초 발화):
+   *        구조 발동 → 밑소음 0.00235 → **0.01557**
+   *        (0.01557 은 방 소리가 아니라 말하는 사람의 가장 작은 음절입니다)
+   *        조용한 아이(0.014)로 해도 0.00241 → 0.00686 으로 뜁니다.
+   *    → 이렇게 부풀린 밑소음이 다음 턴으로 넘어가며 문턱을 천장(0.018)까지
+   *      밀어 올렸습니다. 앞서 고친 "말하는 중 학습 금지"만으로는 이 경로가
+   *      그대로 남아 증상이 계속됐습니다.
+   *
+   * 그래서 방의 바닥값은 **말하는 구간이 아니라 시간 창으로** 잽니다.
+   * 최근 10~20초 안의 최솟값입니다. 사람은 20초를 한 번도 안 쉬고 말하지
+   * 않으므로, 이 창에는 반드시 "아무도 말 안 하던 순간"이 들어 있습니다.
+   * (정말로 20초를 쉬지 않고 나는 소리라면 그건 사람이 아니라 생활소음이고,
+   *  그건 _guardStuckOpen 이 20초에 받아냅니다. 창 길이를 거기 맞춰 둡니다.)
+   *
+   * 구현은 반쪽 창 두 개입니다. 배열을 들고 있지 않아도 되고,
+   * 창이 넘어갈 때 값이 통째로 사라지지 않습니다.
+   */
+  _observeAmbient(level, now) {
+    const half = this.maxContinuousStreamMs / 2;
+    if (this.ambientWindowStartedAt === 0) this.ambientWindowStartedAt = now;
+    if (now - this.ambientWindowStartedAt >= half) {
+      this.ambientPrevMin = this.ambientMin;
+      this.ambientMin = Infinity;
+      this.ambientWindowStartedAt = now;
+    }
+    if (level < this.ambientMin) this.ambientMin = level;
+  }
+
+  /** 최근 창에서 관찰된 방의 바닥값. 아직 모르면 현재 추정치를 씁니다. */
+  ambientFloor() {
+    const m = Math.min(this.ambientMin, this.ambientPrevMin);
+    return Number.isFinite(m) ? m : this.noiseFloor;
   }
 
   /**
@@ -296,7 +346,11 @@ export class SilenceGate {
     if (now - this.lastNoiseUpdateAt < this.noiseStarvedMs) return;
     this.lastNoiseUpdateAt = now;
 
-    const quiet = Number.isFinite(this.burstFloor) ? this.burstFloor : this.noiseFloor;
+    /* ⚠️ 2026-08-18(세 번째). 예전에는 여기가 burstFloor 였습니다.
+     *    그건 **말하는 사람의 가장 작은 음절**이라서, 구조할 때마다 밑소음이
+     *    사람 목소리 쪽으로 끌려 올라갔습니다(0.0024 → 0.0156, 턴마다 1회).
+     *    방의 바닥값은 시간 창으로 재야 합니다. @see _observeAmbient */
+    const quiet = this.ambientFloor();
     if (!(quiet > this.noiseFloor)) return;
 
     /* ⚠️ 2026-08-18. 여기에도 천장을 겁니다 (_guardStuckOpen 과 같은 이유).
@@ -325,10 +379,41 @@ export class SilenceGate {
    *                  말이 시작되고 끝나는 순간을 우리가 직접 알려줘야 합니다.
    */
   process(level, now) {
+    // 방의 바닥값은 게이트가 열렸든 닫혔든 항상 잽니다. @see _observeAmbient
+    this._observeAmbient(level, now);
+
     const onset = this.onsetThreshold();
 
-    // 발화로 보이지 않는 프레임은 어느 상태에서든 소음 통계에 반영합니다.
-    // ⚠️ 기준은 duck을 걸기 전 값입니다 (baseThreshold 주석 참고).
+    /* 소음 통계 갱신.
+     *
+     * ⚠️ 2026-08-18(세 번째). **여기는 범인이 아니었습니다.** 헛짚은 기록을
+     *    남겨 둡니다. 안 남기면 다음 사람이 똑같이 헛짚습니다.
+     *
+     *    의심: baseThreshold 가 천장(0.018)에 눌러붙어 있으면, 0.018 아래인
+     *    프레임은 **그게 사람 말이어도** 소음으로 학습된다. 사람 말은 음절
+     *    사이에서 세기가 꺼지므로 말하는 내내 그런 프레임이 생긴다.
+     *    계측도 그럴듯했습니다 — 어른이 5턴 말하는 동안 말하는 중에만 33개
+     *    프레임이 학습됐고 그중 최댓값이 0.01796 이었습니다.
+     *
+     *    그래서 `&& this.state !== GateState.SPEAKING` 을 붙여 봤습니다.
+     *    조용한 아이가 2턴 만에 먹통이던 것이 6턴까지 버텼습니다. 좋아 보였죠.
+     *    **하지만 그건 증상을 늦춘 것이지 원인을 고친 게 아니었습니다.**
+     *
+     *    진짜 원인은 _rescueNoiseStats / _guardStuckOpen 이 방의 소음이랍시고
+     *    **말하는 사람의 가장 작은 음절(burstFloor)** 을 배우던 것이었습니다.
+     *    그쪽을 시간 창(ambientFloor)으로 바꾸고 나니, 이 조건은 **있으나
+     *    없으나 숫자가 같았습니다.** 조용한 방·거실(TV)·아주 시끄러운 거실
+     *    세 곳에서 8턴씩 돌려 소수점 다섯 자리까지 대조했습니다.
+     *    되돌리기 검증에서도 이 조건만 되돌리면 테스트가 **하나도 안 깨집니다.**
+     *
+     *    그래서 도로 뺐습니다. 값을 못 하는 조건을 남겨 두면, 다음에 문제가
+     *    생겼을 때 "이건 이미 막아 뒀는데" 하고 엉뚱한 데를 보게 됩니다.
+     *    @see _observeAmbient — 실제로 고친 곳
+     *
+     * 발화로 보이지 않는 프레임은 어느 상태에서든 소음 통계에 반영합니다.
+     * ⚠️ 기준은 duck 을 걸기 **전** 값(baseThreshold)입니다. duck 이 걸린 문턱을
+     *    기준으로 삼으면 선생님 목소리가 전부 소음으로 학습됩니다. @see baseThreshold
+     */
     if (level < this.baseThreshold()) {
       this._updateNoiseStats(level);
       this.lastNoiseUpdateAt = now;
@@ -463,7 +548,9 @@ export class SilenceGate {
      *    **마이크가 먹통이 되는 것보다는 낫습니다.**
      */
     const cap = this.maxSpeechRms;
-    const floor = Number.isFinite(this.burstFloor) ? this.burstFloor : this.noiseFloor;
+    // ⚠️ 여기도 burstFloor 가 아니라 시간 창의 바닥값입니다. 같은 이유입니다.
+    //    @see _observeAmbient
+    const floor = this.ambientFloor();
     this.noiseFloor = Math.min(0.04, cap, Math.max(this.noiseFloor, floor * 1.15));
     this.noiseDev = Math.min(0.02, cap * 0.15, Math.max(this.noiseDev, floor * 0.15));
     this.state = GateState.IDLE;
