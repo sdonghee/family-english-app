@@ -342,6 +342,30 @@ export class ChatSession {
     return true;
   }
 
+  /**
+   * 한 턴의 구간별 소요 시간을 화면 상태줄에 찍습니다.
+   *
+   * 왜 화면인가: 목사님은 개발자가 아니라 개발자도구를 열 수 없습니다.
+   * console.log 만 남기면 아무도 못 봅니다. 화면에 있어야 사진을 찍어
+   * 보내주실 수 있고, 그러면 느린 구간이 한 번에 특정됩니다.
+   *
+   * 왜 초 단위 소수 한 자리인가: 밀리초는 읽기 어렵고, 정수 초는
+   * 0.4초와 1.4초를 구분 못 합니다.
+   */
+  _reportTiming(T, sentAudio) {
+    const s = (ms) => (ms / 1000).toFixed(1);
+    const total = Date.now() - T.t0;
+    const parts = [];
+    if (sentAudio) parts.push(`올리기 ${s(T.wav)}초`);
+    parts.push(`선생님 ${s(T.talk)}초`);
+    parts.push(`목소리 ${s(T.tts)}초`);
+    const kb = T.bytes ? ` · ${Math.round(T.bytes / 1024)}KB` : '';
+    const model = T.model ? ` · ${T.model}` : '';
+    const line = `${s(total)}초 (${parts.join(' · ')})${kb}${model}`;
+    console.info('[chat] 턴 시간 —', line);
+    this._setState(LiveState.LIVE, { message: line });
+  }
+
   /* ── 한 턴 ───────────────────────────────────────────────────────────── */
 
   /**
@@ -368,6 +392,18 @@ export class ChatSession {
     /* 이 턴을 목소리로 보냈는지. 아래에서 자막 처리가 갈립니다. */
     const sentAudio = !!(frames && frames.length);
 
+    /* ── 구간별 시간 계측 ────────────────────────────────────────────────
+     * 왜: "반응이 너무 늦어, 10초 넘게 걸려"라는 신고를 받았는데,
+     *     한 턴은 [녹음 → WAV 변환 → 업로드+모델 → TTS → 재생] 다섯 구간이라
+     *     **어느 구간이 느린지 모르면 아무것도 고칠 수 없습니다.**
+     *     목사님은 개발자가 아니라 개발자도구를 열 수 없으므로,
+     *     숫자를 화면 상태줄에 그대로 찍습니다. 사진 한 장이면 범인이 보입니다.
+     *     (이 프로젝트 원칙: 조용한 폴백 금지 — 계측도 눈에 보이게)
+     */
+    const T = { t0: Date.now(), wav: 0, talk: 0, tts: 0, play: 0, bytes: 0, model: '' };
+    const lap = () => { const n = Date.now(); const d = n - T._m; T._m = n; return d; };
+    T._m = T.t0;
+
     try {
       const payload = {
         profileId: this.profileId,
@@ -377,9 +413,11 @@ export class ChatSession {
       if (sentAudio) {
         payload.audio = framesToWavBase64(frames, AUDIO.INPUT_SAMPLE_RATE);
         payload.audioMimeType = 'audio/wav';
+        T.bytes = payload.audio.length;
       } else {
         payload.text = seedText || '';
       }
+      T.wav = lap();
 
       const res = await fetch('/api/talk', {
         method: 'POST',
@@ -387,6 +425,8 @@ export class ChatSession {
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
+      T.talk = lap();
+      T.model = String(data?.model || '');
 
       if (!res.ok) {
         console.error('[chat] /api/talk 실패', res.status, data);
@@ -437,6 +477,11 @@ export class ChatSession {
 
       // 4) 소리로 바꿔서 재생
       await this._speak(reply);
+      T.tts = lap();
+
+      /* 5) 어느 구간이 느렸는지 화면에 그대로 보여줍니다.
+            숫자를 감추면 다음에도 "느려요"라는 말만 오갑니다. */
+      this._reportTiming(T, sentAudio);
 
     } catch (err) {
       console.error('[chat] 턴 처리 중 오류', err);
