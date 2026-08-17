@@ -39,6 +39,23 @@ const TEXT_MODELS = [
   'gemini-2.5-flash',
 ].filter(Boolean);
 
+/**
+ * 마지막으로 성공한 모델. **매 턴의 지연을 줄이기 위한 것입니다.**
+ *
+ * 왜: 앞 후보가 이 API 키에서 안 열리면, 그 실패한 왕복이 **매 턴마다**
+ *     통째로 더해집니다. 아이는 그만큼 계속 기다립니다.
+ *     한 번 성공한 모델을 기억해 두고 다음부터 그것부터 시도합니다.
+ *
+ * 모듈 스코프라 서버 인스턴스가 살아 있는 동안만 유지됩니다(그걸로 충분합니다).
+ * 응답에 model 을 그대로 실어 보내므로 화면에서 어느 모델이 답했는지 보입니다.
+ */
+let lastGoodModel = '';
+
+function modelOrder() {
+  if (!lastGoodModel) return TEXT_MODELS;
+  return [lastGoodModel, ...TEXT_MODELS.filter((m) => m !== lastGoodModel)];
+}
+
 /** live-token.js 와 같은 정화 로직. 이 값들은 시스템 프롬프트에 들어갑니다. */
 function sanitizeContext(raw) {
   const clean = (s, max) =>
@@ -142,7 +159,15 @@ module.exports = async function handler(req, res) {
         '반드시 이 형식을 지키세요:\n' +
         'HEARD: <학생이 한 말 그대로. 문법 교정하지 말 것>\n' +
         'REPLY: <선생님 대사>\n' +
-        '오디오에 말이 없거나 알아들을 수 없으면 HEARD: 를 비워두세요.',
+        '\n' +
+        '⚠️ 받아쓰기 규칙 (이것을 어기면 앱이 망가집니다):\n' +
+        '- **들리지 않는 말을 지어내지 마세요.** 오디오에 실제로 들어 있는 소리만 적으세요.\n' +
+        '- 오디오가 잡음뿐이거나, 숨소리·기침·생활소음뿐이거나, 너무 작아서\n' +
+        '  알아들을 수 없으면 **HEARD: 뒤를 완전히 비워두세요.**\n' +
+        '- 앞의 대화 내용을 보고 "이렇게 말했을 것"이라고 **추측해서 채우지 마세요.**\n' +
+        '  대화 흐름상 그럴듯한 문장을 지어내는 것이 가장 나쁜 행동입니다.\n' +
+        '- 일부만 알아들었으면 알아들은 부분만 적으세요. 나머지를 메우지 마세요.\n' +
+        '- 비워두는 것은 실패가 아닙니다. 앱이 "한 번 더 말해 주세요"라고 안내합니다.',
     });
   } else {
     turnParts.push({ text: userText });
@@ -151,14 +176,28 @@ module.exports = async function handler(req, res) {
   const bodyData = {
     system_instruction: { parts: [{ text: systemText }] },
     contents: [...buildHistory(req.body?.history), { role: 'user', parts: turnParts }],
-    generationConfig: { temperature: 1.0, maxOutputTokens: 800 },
+    /* ⚠️ 2026-08-18. temperature 가 1.0 이었습니다.
+     *
+     *    이 한 번의 호출이 **두 가지 일**을 동시에 합니다:
+     *      (1) 학생이 한 말 받아쓰기 — 정확해야 함. 창의성이 있으면 안 됨.
+     *      (2) 선생님 대사 만들기   — 자연스러워야 함.
+     *
+     *    1.0 은 (2)에 맞춘 값이고, (1)에는 **재앙**입니다. 잘 안 들리는
+     *    오디오를 받으면 모델이 대화 흐름에 어울리는 문장을 **지어냅니다.**
+     *    "내가 말하지 않은 단어를 스스로 만들어낸다"가 이것입니다.
+     *
+     *    0.4 로 낮춥니다. 선생님 대사는 조금 덜 변화무쌍해지지만,
+     *    아이 영어 학습에는 오히려 일관된 쪽이 낫습니다.
+     *    받아쓰기가 틀리면 그 뒤의 모든 것이 틀립니다.
+     */
+    generationConfig: { temperature: 0.4, maxOutputTokens: 800 },
   };
   const tools = toolsFor(profile, stage);
   if (tools) bodyData.tools = tools;
 
   const attempts = [];
 
-  for (const model of TEXT_MODELS) {
+  for (const model of modelOrder()) {
     try {
       const url =
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -207,6 +246,9 @@ module.exports = async function handler(req, res) {
         attempts.push({ model, status: 200, detail: '응답에 대사가 없습니다' });
         continue;
       }
+
+      /* 이 모델이 실제로 답했습니다. 다음 턴은 여기부터 시도합니다. */
+      lastGoodModel = model;
 
       return res.status(200).json({
         userText: heard,
