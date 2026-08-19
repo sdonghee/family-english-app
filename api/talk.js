@@ -100,15 +100,60 @@ function toolsFor(profile, stage) {
  *   요청이 매번 독립적입니다. 그래서 최근 몇 턴을 매번 같이 보냅니다.
  *   전부 보내면 토큰 요금이 계속 늘기 때문에 최근 것만 자릅니다.
  */
+/**
+ * 지난 대화 기록에서 **고장난 시절의 대사**를 걸러냅니다.
+ *
+ * ⚠️ 2026-08-19 — "고쳤는데도 Nice one! 이 계속 나온다"
+ *
+ * 서버 코드를 고쳐도 증상이 그대로였습니다. 원인은 코드가 아니라 **기록**이었습니다.
+ * 고장난 시절에 쌓인 대사가 기록에 남아 매 턴 모델에게 함께 전달되고,
+ * 모델은 그걸 보고 "이 선생님은 이렇게 말하는구나" 하고 **말투를 흉내냅니다.**
+ *
+ *   기록: "Ah, you mean — She is 6 years old now. Nice one!"
+ *   → 새 코드가 만들지 않는 문장인데도 모델이 똑같이 지어냅니다.
+ *
+ * 게다가 그 대사들은 원래 **학생이 했을 법한 말**이라, 모델이 그걸
+ * 학생 발화로 착각해 "하지 않은 말"을 이어서 만들어냅니다.
+ *
+ * 그래서 기록을 서버로 받을 때 그 흔적을 지웁니다.
+ * 사용자가 "대화 초기화"를 누르지 않아도 스스로 회복되어야 합니다.
+ */
+const BROKEN_ECHO_PATTERNS = [
+  /Nice one!/i,                       // 옛 안전망 꼬리표
+  /^\s*Ah, you mean\s*—/i,            // 옛 안전망 recast (대시 형태)
+  /^\s*That was really good!\s*Keep going\.\s*$/i, // 조각 턴에 붙던 빈 칭찬
+];
+ 
+function isBrokenEcho(text) {
+  return BROKEN_ECHO_PATTERNS.some((re) => re.test(text));
+}
+ 
 function buildHistory(raw) {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .slice(-12)
-    .filter((m) => m && typeof m.text === 'string' && m.text.trim())
-    .map((m) => ({
+ 
+  const kept = [];
+  let dropped = 0;
+ 
+  for (const m of raw.slice(-12)) {
+    if (!m || typeof m.text !== 'string' || !m.text.trim()) continue;
+ 
+    /* 선생님 대사에서만 걸러냅니다. 학생이 실제로 한 말은 절대 지우지 않습니다 —
+       학습자의 말을 임의로 지우는 것이 훨씬 나쁜 사고입니다. */
+    if (m.role === 'teacher' && isBrokenEcho(m.text)) {
+      dropped++;
+      continue;
+    }
+ 
+    kept.push({
       role: m.role === 'teacher' ? 'model' : 'user',
       parts: [{ text: String(m.text).slice(0, 1000) }],
-    }));
+    });
+  }
+ 
+  if (dropped) {
+    console.warn(`[talk] 고장난 시절의 선생님 대사 ${dropped}개를 기록에서 걸렀습니다`);
+  }
+  return kept;
 }
  
 /**
@@ -223,6 +268,13 @@ module.exports = async function handler(req, res) {
         '- 학생이 **긴 문장**을 말했으면, 그 안의 내용에 실제로 반응하세요.\n' +
         '  길다고 "Good job!" 한마디로 넘기지 마세요. 무엇을 말했는지 짚어주고\n' +
         '  이어지는 질문을 하세요.\n' +
+        '\n' +
+        '⚠️ 지난 대화 기록에 대하여:\n' +
+        '  기록은 **무슨 이야기를 했는지 기억하기 위한 것**입니다.\n' +
+        '  거기 있는 문장의 **말투나 틀을 따라 하지 마세요.**\n' +
+        '  특히 "Ah, you mean — ...", "Nice one!", "That was really good!" 같은\n' +
+        '  틀이 보이더라도 흉내내지 마세요. 그건 고장났던 시절의 흔적입니다.\n' +
+        '  매번 그 상황에 맞는 **새로운 말**을 하세요.\n' +
         '\n' +
         '⚠️ 말이 조각나서 도착할 때 (아주 중요):\n' +
         '  학생이 문장 중간에 뜸을 들이면, 한 문장이 **두 번에 나눠서** 옵니다.\n' +
