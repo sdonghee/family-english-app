@@ -1,3 +1,4 @@
+
 /**
  * web_app/src/speechEnergy.js
  * ----------------------------------------------------------------------------
@@ -21,10 +22,10 @@
  * 브라우저 API를 쓰지 않는 순수 함수입니다. Node에서 그대로 검사합니다.
  * ----------------------------------------------------------------------------
  */
-
+ 
 /** 20ms 단위로 잘라서 봅니다 (음절 하나보다 짧은 단위) */
 const CHUNK_MS = 20;
-
+ 
 /**
  * 이 오디오에서 **말소리로 볼 만한 구간**이 몇 ms 인지 잽니다.
  *
@@ -39,7 +40,7 @@ const CHUNK_MS = 20;
  */
 export function measureSpeech(frames, sampleRate) {
   const chunkSamples = Math.max(1, Math.round((sampleRate * CHUNK_MS) / 1000));
-
+ 
   /* 1) 전체를 20ms 조각으로 훑으며 각 조각의 세기(RMS)를 구합니다.
         조각 경계가 frame 경계와 안 맞으므로 프레임을 가로질러 셉니다. */
   const levels = [];
@@ -57,36 +58,75 @@ export function measureSpeech(frames, sampleRate) {
     }
   }
   if (n > 0) levels.push(Math.sqrt(acc / n));
-
+ 
   const totalMs = (levels.length * chunkSamples * 1000) / sampleRate;
   if (levels.length < 3) return { speechMs: 0, totalMs, floor: 0, peak: 0 };
-
+ 
   /* 2) 이 녹음 자신의 밑소음 = 조용한 쪽 20% 지점.
         평균을 쓰면 안 됩니다. 말소리가 평균을 끌어올려서,
         정작 말이 많이 든 녹음일수록 기준이 높아지는 거꾸로가 됩니다. */
   const sorted = [...levels].sort((a, b) => a - b);
   const floor = sorted[Math.floor(sorted.length * 0.2)];
   const peak = sorted[sorted.length - 1];
-
+ 
   /* 3) 말소리 판정선.
         - 밑소음의 3배를 넘어야 합니다 (소음이 출렁이는 것과 구분).
         - 그리고 최고음의 15%는 넘어야 합니다 (녹음 전체가 조용할 때,
           밑소음의 3배라 해도 여전히 아무 말도 아닐 수 있습니다).
         - 마지막으로 절대 하한. 완전한 무음(전부 0)에서 floor가 0이 되면
           3배도 0이라 모든 조각이 "말소리"가 되어버립니다. */
-  const cut = Math.max(floor * 3, peak * 0.15, 0.004);
-
+  let cut = Math.max(floor * 3, peak * 0.15, 0.004);
+ 
+  /* ⚠️ 2026-08-19 사고 — "긴 문장은 아바타가 아예 반응이 없다"
+     ────────────────────────────────────────────────────────────────
+     위 밑소음(20% 지점)은 **앞뒤 침묵이 20%는 된다**고 가정합니다.
+     짧게 말하면 그 가정이 맞지만, 길게 말하면 침묵 비율이 훅 떨어집니다.
+     그러면 20% 지점이 이미 말소리라 밑소음이 말소리 크기로 잡히고,
+     판정선(밑소음×3)이 최고음보다 높아져 **모든 조각이 걸러집니다.**
+ 
+     실제로 측정한 값입니다 (음절이 있는 진짜 파형, 말소리 최고 0.0597):
+        앞뒤침묵 15% → 밑소음 0.0025, 판정선 0.0090 → 25초도 통과
+        앞뒤침묵  2% → 밑소음 0.0274, 판정선 0.0822 → 말소리 0ms ❌
+        앞뒤침묵  1% → 밑소음 0.0274, 판정선 0.0822 → 말소리 0ms ❌
+ 
+     길게 말할수록 "아무 말도 안 했다"가 되어 서버로 보내지도 않았고,
+     화면에는 "주변 소리만 들어왔어요"만 떴습니다.
+ 
+     ── 그러면 진짜 방 소음과 어떻게 구별하나 ──
+     사람 말은 **음절 때문에 크기가 계속 출렁입니다.** 방 소음은 균일합니다.
+     그 차이가 최고음÷밑소음 비율에 그대로 나옵니다:
+ 
+        말 12초(침묵 2%)   → 2.18      말 3초(침묵 15%) → 23.80
+        방 소음 20초       → 1.01      에어컨 20초      → 1.01
+ 
+     그래서 이 비율이 1.5 이상일 때만 "음절 구조가 있다 = 사람이 말했다"로
+     보고 판정선에 상한을 씌웁니다. 균일한 소음은 이 문에 못 들어오므로
+     예전처럼 그대로 걸러집니다. */
+  const SYLLABLE_RATIO = 1.5;
+  const dynamicRange = floor > 0 ? peak / floor : Infinity;
+ 
+  if (dynamicRange >= SYLLABLE_RATIO) {
+    /* 최고음의 절반을 넘는 판정선은 성립할 수 없습니다 —
+       "이 녹음에서 가장 큰 소리조차 말이 아니다"라는 뜻이라 항상 틀립니다.
+       ⚠️ 절대 하한(0.004)은 **상한을 씌운 뒤에** 다시 씌웁니다.
+          순서를 바꾸면 조용한 방에서 상한이 절대 하한을 깎아
+          방 소음 20초가 통째로 통과합니다(검사 [9][10]에서 잡혔습니다). */
+    cut = Math.max(0.004, Math.min(cut, peak * 0.5));
+  }
+ 
   let loud = 0;
   for (const lv of levels) if (lv > cut) loud++;
-
+ 
   return {
     speechMs: (loud * chunkSamples * 1000) / sampleRate,
     totalMs,
     floor,
     peak,
+    cut,
+    dynamicRange,
   };
 }
-
+ 
 /**
  * 서버로 보낼 만한 녹음인지 판단합니다.
  *
@@ -110,3 +150,4 @@ export function shouldSendAudio(frames, sampleRate, minSpeechMs = 350) {
     totalMs: m.totalMs,
   };
 }
+ 
