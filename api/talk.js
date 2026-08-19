@@ -1,3 +1,4 @@
+
 /**
  * api/talk.js
  * ----------------------------------------------------------------------------
@@ -19,9 +20,9 @@
  *    교정은 맥락을 아는 쪽(모델)이 합니다.
  * ----------------------------------------------------------------------------
  */
-
+ 
 'use strict';
-
+ 
 const { guard } = require('./_guard');
 const {
   FAMILY_PROFILES,
@@ -31,14 +32,14 @@ const {
 } = require('./_persona');
 const { CHILD_STAGES, getStage } = require('./_stages');
 const { parseTurnText } = require('./_parseTurn');
-
+ 
 /* 대화용 텍스트 모델 후보. 앞에서부터 시도합니다. */
 const TEXT_MODELS = [
   process.env.GEMINI_TALK_MODEL,
   'gemini-3.6-flash',
   'gemini-2.5-flash',
 ].filter(Boolean);
-
+ 
 /**
  * 마지막으로 성공한 모델. **매 턴의 지연을 줄이기 위한 것입니다.**
  *
@@ -50,19 +51,19 @@ const TEXT_MODELS = [
  * 응답에 model 을 그대로 실어 보내므로 화면에서 어느 모델이 답했는지 보입니다.
  */
 let lastGoodModel = '';
-
+ 
 function modelOrder() {
   if (!lastGoodModel) return TEXT_MODELS;
   return [lastGoodModel, ...TEXT_MODELS.filter((m) => m !== lastGoodModel)];
 }
-
+ 
 /** live-token.js 와 같은 정화 로직. 이 값들은 시스템 프롬프트에 들어갑니다. */
 function sanitizeContext(raw) {
   const clean = (s, max) =>
     typeof s === 'string'
       ? s.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
       : '';
-
+ 
   return {
     recentSummary: clean(raw?.recentSummary, 600),
     todayMission: clean(raw?.todayMission, 120),
@@ -81,7 +82,7 @@ function sanitizeContext(raw) {
       : undefined,
   };
 }
-
+ 
 /** 이름 목록 → 함수 선언 (원래 _persona.buildTools 와 같은 모양) */
 function toolsFor(profile, stage) {
   const names = profile.kind === 'child'
@@ -90,7 +91,7 @@ function toolsFor(profile, stage) {
   const functionDeclarations = names.map((n) => TOOL_DEFS[n]).filter(Boolean);
   return functionDeclarations.length ? [{ functionDeclarations }] : undefined;
 }
-
+ 
 /**
  * 이전 대화를 Gemini contents 형식으로 바꿉니다.
  *
@@ -109,10 +110,47 @@ function buildHistory(raw) {
       parts: [{ text: String(m.text).slice(0, 1000) }],
     }));
 }
-
+ 
+/**
+ * 도구 호출만 있고 대사가 비었을 때, **말로 할 한 문장**을 만듭니다.
+ *
+ * 왜 필요한가: api/talk.js 안쪽 주석 참고.
+ * 요약하면 — 화면에 카드만 뜨고 아바타가 침묵하면, 학습자는
+ * "내 말을 못 들었나 보다"라고 느낍니다. 그건 대화가 아닙니다.
+ *
+ * 설계 원칙:
+ *   - **되짚어주기(recast)** 형태로 만듭니다. 지적하지 않습니다.
+ *     교정 카드가 이미 자세히 보여주므로, 말로는 자연스럽게 흘립니다.
+ *   - 영어로 만듭니다. 이 앱의 선생님은 영어로 말합니다.
+ *   - 짧게. 이건 어디까지나 비상용 한 문장입니다.
+ */
+function speakFromToolCalls(toolCalls) {
+  for (const call of toolCalls) {
+    const a = call?.args || {};
+ 
+    if (call.name === 'correct_sentence' && a.corrected) {
+      // "Oh, you went to the park! Nice." — 지적이 아니라 되짚어주기
+      return `Ah, you mean — ${String(a.corrected).trim()} Nice one!`;
+    }
+ 
+    if (call.name === 'teach_word' && a.word) {
+      const ex = a.example_en ? ` Like this: ${String(a.example_en).trim()}` : '';
+      return `We call that "${String(a.word).trim()}".${ex} Wanna try it?`;
+    }
+ 
+    if (call.name === 'log_progress') {
+      return `That was really good! Keep going.`;
+    }
+  }
+ 
+  /* 알 수 없는 도구뿐이라면, 그래도 침묵하지는 않습니다.
+     대화를 이어가는 게 카드보다 중요합니다. */
+  return `Got it! Tell me more.`;
+}
+ 
 module.exports = async function handler(req, res) {
   if (!guard(req, res)) return;
-
+ 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return res.status(500).json({
@@ -123,30 +161,30 @@ module.exports = async function handler(req, res) {
         '(끝의 Y 까지) 확인하고, 저장한 뒤 반드시 Redeploy 해주세요.',
     });
   }
-
+ 
   const profileId = String(req.body?.profileId || '');
   const profile = FAMILY_PROFILES[profileId];
   if (!profile) {
     return res.status(400).json({ error: 'unknown_profile', message: `알 수 없는 프로필입니다: ${profileId}` });
   }
-
+ 
   const context = sanitizeContext(req.body?.context);
   const isChild = profile.kind === 'child';
   const stage = isChild ? getStage(context.stage ?? profile.defaultStage) : null;
-
+ 
   const systemText = isChild
     ? buildChildInstruction(profile, stage, context)
     : buildAdultInstruction(profile, context);
-
+ 
   /* 들어온 발화. 오디오가 우선이고, 없으면 글자(힌트 버튼·키보드 입력)입니다. */
   const audioB64 = typeof req.body?.audio === 'string' ? req.body.audio : '';
   const audioMime = String(req.body?.audioMimeType || 'audio/wav');
   const userText = String(req.body?.text || '').trim();
-
+ 
   if (!audioB64 && !userText) {
     return res.status(400).json({ error: 'audio_or_text_required' });
   }
-
+ 
   /* 오디오를 보낼 때는 "받아쓴 말"도 함께 달라고 합니다.
      화면 자막과 학습 기록에 아이가 실제로 한 말이 남아야 하기 때문입니다. */
   const turnParts = [];
@@ -167,12 +205,24 @@ module.exports = async function handler(req, res) {
         '- 앞의 대화 내용을 보고 "이렇게 말했을 것"이라고 **추측해서 채우지 마세요.**\n' +
         '  대화 흐름상 그럴듯한 문장을 지어내는 것이 가장 나쁜 행동입니다.\n' +
         '- 일부만 알아들었으면 알아들은 부분만 적으세요. 나머지를 메우지 마세요.\n' +
-        '- 비워두는 것은 실패가 아닙니다. 앱이 "한 번 더 말해 주세요"라고 안내합니다.',
+        '- 비워두는 것은 실패가 아닙니다. 앱이 "한 번 더 말해 주세요"라고 안내합니다.\n' +
+        '\n' +
+        '⚠️ REPLY 규칙 (이것도 어기면 앱이 망가집니다):\n' +
+        '- **교육 도구를 호출할 때도 REPLY 는 반드시 채우세요.**\n' +
+        '  도구만 부르고 REPLY 를 비우면, 화면에는 카드가 뜨는데 선생님은\n' +
+        '  한마디도 하지 않습니다. 학생에게는 "내 말을 못 들었다"로 보입니다.\n' +
+        '- 특히 correct_sentence 를 부를 때는, 말로 **자연스럽게 되짚어** 주세요.\n' +
+        '  학생: "Yesterday I go to park."\n' +
+        '  REPLY: "Oh, you went to the park! Who did you go with?"\n' +
+        '  (카드가 자세히 설명하므로, 말로는 지적하지 말고 흘리듯 고쳐 말하세요)\n' +
+        '- 학생이 **긴 문장**을 말했으면, 그 안의 내용에 실제로 반응하세요.\n' +
+        '  길다고 "Good job!" 한마디로 넘기지 마세요. 무엇을 말했는지 짚어주고\n' +
+        '  이어지는 질문을 하세요.',
     });
   } else {
     turnParts.push({ text: userText });
   }
-
+ 
   const bodyData = {
     system_instruction: { parts: [{ text: systemText }] },
     contents: [...buildHistory(req.body?.history), { role: 'user', parts: turnParts }],
@@ -194,20 +244,20 @@ module.exports = async function handler(req, res) {
   };
   const tools = toolsFor(profile, stage);
   if (tools) bodyData.tools = tools;
-
+ 
   const attempts = [];
-
+ 
   for (const model of modelOrder()) {
     try {
       const url =
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
+ 
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bodyData),
       });
-
+ 
       if (!response.ok) {
         const detail = (await response.text()).slice(0, 400);
         attempts.push({ model, status: response.status, detail });
@@ -220,36 +270,55 @@ module.exports = async function handler(req, res) {
         }
         continue;
       }
-
+ 
       const data = await response.json();
       const parts = data?.candidates?.[0]?.content?.parts || [];
-
+ 
       /* 함수 호출(교육 도구)과 글자를 분리합니다. */
       const toolCalls = parts
         .filter((p) => p.functionCall)
         .map((p) => ({ name: p.functionCall.name, args: p.functionCall.args || {} }));
-
+ 
       const rawText = parts.filter((p) => typeof p.text === 'string').map((p) => p.text).join('\n').trim();
-
+ 
       /* HEARD/REPLY 형식을 뜯어냅니다.
          왜 따로 뺐나: 여기서 난 사고("REPLY:" 접두사가 아이 말풍선에
          그대로 찍히고 선생님이 자문자답)가 화면까지 흘러갔기 때문에,
          이 부분만 따로 검사할 수 있어야 합니다.
          → api/_parseTurn.js, tools/turn-queue.test.mjs 참고 */
-      const { heard, reply, heardEmpty } = parseTurnText({
+      // reply 는 아래 안전망에서 채울 수 있으므로 let 입니다
+      let { heard, reply, heardEmpty } = parseTurnText({
         rawText,
         userText,
         hasAudio: !!audioB64,
       });
-
+ 
       if (!reply && !toolCalls.length) {
         attempts.push({ model, status: 200, detail: '응답에 대사가 없습니다' });
         continue;
       }
-
+ 
+      /* ⚠️ 2026-08-19 사고 — "카드에 뜨는 말에 아바타가 전혀 반응하지 않는다"
+         ──────────────────────────────────────────────────────────────────
+         목사님 말씀: "카드에 뜨는말에는 아바타가 전혀 반응하지않고 안들은거 같음"
+ 
+         원인: 모델이 교육 도구(correct_sentence 등)만 호출하고 REPLY 를
+         비워 보낼 때가 있습니다. 위 조건은 `!reply && !toolCalls.length`
+         이므로, **도구만 있으면 reply 가 비어도 그대로 통과**했습니다.
+         그러면 화면에는 교정 카드가 뜨는데 아바타는 한마디도 안 합니다.
+         학습자 입장에서는 "내 말을 아예 못 들었다"로 보입니다.
+ 
+         프롬프트로 "도구를 부를 때도 말은 반드시 하라"고 지시해 두었지만,
+         지시는 지켜지지 않을 때가 있습니다. 그래서 서버에 안전망을 둡니다.
+         도구 내용에서 **말로 되짚어주는 한 문장**을 만들어 채웁니다. */
+      if (!reply && toolCalls.length) {
+        reply = speakFromToolCalls(toolCalls);
+        console.warn('[talk] 대사가 비어 도구 내용으로 채웠습니다:', reply);
+      }
+ 
       /* 이 모델이 실제로 답했습니다. 다음 턴은 여기부터 시도합니다. */
       lastGoodModel = model;
-
+ 
       return res.status(200).json({
         userText: heard,
         reply,
@@ -262,10 +331,11 @@ module.exports = async function handler(req, res) {
       attempts.push({ model, status: 0, detail: String(err?.message || err).slice(0, 300) });
     }
   }
-
+ 
   return res.status(502).json({
     error: 'talk_all_models_failed',
     attempts,
     hint: '대화 모델에 모두 접근하지 못했습니다. 서버 로그의 attempts 를 확인하세요.',
   });
 };
+ 
