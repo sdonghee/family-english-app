@@ -129,17 +129,22 @@ function speakFromToolCalls(toolCalls) {
     const a = call?.args || {};
  
     if (call.name === 'correct_sentence' && a.corrected) {
-      // "Oh, you went to the park! Nice." — 지적이 아니라 되짚어주기
-      return `Ah, you mean — ${String(a.corrected).trim()} Nice one!`;
+      /* ⚠️ 되짚어주되(recast) **꼬리표를 붙이지 않습니다.**
+         처음에는 `Ah, you mean — ${corrected} Nice one!` 이었는데,
+         그 "Nice one!" 을 다음 턴에서 모델이 **학생이 한 말**로 착각해
+         teach_word('Nice one!') 를 불렀습니다. 자기가 한 말을 가르치는
+         고리가 생긴 것입니다. 선생님 대사에는 학생 말로 오해될
+         군더더기를 붙이지 않습니다. */
+      return `Ah, you mean "${String(a.corrected).trim()}". Tell me more about it!`;
     }
  
     if (call.name === 'teach_word' && a.word) {
-      const ex = a.example_en ? ` Like this: ${String(a.example_en).trim()}` : '';
-      return `We call that "${String(a.word).trim()}".${ex} Wanna try it?`;
+      const ex = a.example_en ? ` For example: ${String(a.example_en).trim()}` : '';
+      return `We call that "${String(a.word).trim()}".${ex} Want to try saying it?`;
     }
  
     if (call.name === 'log_progress') {
-      return `That was really good! Keep going.`;
+      return `That was really good. Keep going!`;
     }
   }
  
@@ -311,6 +316,36 @@ module.exports = async function handler(req, res) {
          프롬프트로 "도구를 부를 때도 말은 반드시 하라"고 지시해 두었지만,
          지시는 지켜지지 않을 때가 있습니다. 그래서 서버에 안전망을 둡니다.
          도구 내용에서 **말로 되짚어주는 한 문장**을 만들어 채웁니다. */
+      /* ⚠️ 2026-08-19 두 번째 사고 — "갑자기 혼자 대화하기 시작했어.
+             내가 하지 않은 말을 내가 말한 것처럼 대화해."
+         ──────────────────────────────────────────────────────────────────
+         바로 위 안전망을 넣자마자 이 사고가 났습니다. 원인은 두 겹이었습니다.
+ 
+         ① 못 알아들었는데(HEARD 가 빈) 모델이 correct_sentence 를 부릅니다.
+            무엇을 들었는지도 모르면서 "고친 문장"을 지어낸 것입니다.
+         ② 그런데 안전망이 그 지어낸 `corrected` 를 **선생님 대사**로 만들어
+            "Ah, you mean — I woke up early, around 3 a.m." 라고 말했습니다.
+ 
+         결과: 학생 말풍선은 비어 있는데, 선생님이 학생이 했을 법한 말을
+         대신 하고, 그게 대화 기록에 남아 다음 턴의 재료가 됩니다.
+         → 선생님 혼자 묻고 답하는 대화가 이어집니다.
+ 
+         그래서 **못 알아들은 턴에서는 도구를 통째로 버립니다.**
+         들은 게 없으면 가르칠 것도 없습니다. */
+      if (heardEmpty && toolCalls.length) {
+        console.warn(
+          `[talk] 못 알아들은 턴인데 도구를 ${toolCalls.length}개 불렀습니다 — 전부 버립니다:`,
+          toolCalls.map((t) => t.name).join(', ')
+        );
+        toolCalls.length = 0;
+      }
+ 
+      if (!reply && !toolCalls.length && heardEmpty) {
+        /* 들은 것도 없고 할 말도 없으면, 되묻습니다.
+           침묵하면 "왜 반응이 없지?" 가 됩니다. */
+        reply = "Sorry, I didn't catch that. Could you say it once more?";
+      }
+ 
       if (!reply && toolCalls.length) {
         reply = speakFromToolCalls(toolCalls);
         console.warn('[talk] 대사가 비어 도구 내용으로 채웠습니다:', reply);
