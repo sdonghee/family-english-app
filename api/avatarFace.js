@@ -51,9 +51,9 @@ const MOUTH_Y = -0.455;
      LIP   — 입술 판의 **바깥** 테두리 (여기서 피부색과 만납니다)
      MOUTH — 다물었을 때의 **입 구멍** (얇은 선으로 보입니다)
    반드시 LIP > CUT 이어야 톱니 가장자리가 가려집니다. */
-const CUT_A = 0.196, CUT_B = 0.072;
-const LIP_A = 0.262, LIP_B = 0.102;
-const MOUTH_A = 0.164, MOUTH_B = 0.0060;
+const CUT_A = 0.186, CUT_B = 0.074;
+const LIP_A = 0.250, LIP_B = 0.113;
+const MOUTH_A = 0.156, MOUTH_B = 0.0060;
 
 /* ── 작은 수학 ─────────────────────────────────────────────────────────── */
 
@@ -100,21 +100,26 @@ function shapeSkull(v) {
   // ⚠️ x 를 0.845 로 뒀더니 정면에서 얼굴이 넓적했습니다. 사람 머리는
   //    정면 폭 : 높이 ≈ 0.72 입니다.
   v.x *= 0.775;
-  v.y *= 1.048;
+  v.y *= 1.028;
   v.z *= 0.905;
 
   const y = v.y;
 
   /* 턱 쪽 좁히기. 이게 이 함수에서 가장 중요한 한 줄입니다 —
      아래가 안 좁아지면 무슨 짓을 해도 얼굴이 눈사람으로 보입니다. */
+  /* 2026-08-20 — 목사님: "목소리는 여자인데 얼굴은 남자야."
+     여성 얼굴과 남성 얼굴을 가르는 것은 눈·코·입이 아니라 **턱선**입니다.
+     아래로 갈수록 더 많이 좁혀서 계란형(V형)에 가깝게 만듭니다. */
   const t = smoothstep(-0.02, -1.02, y);
-  v.x *= mix(1, 0.545, t * t);
+  v.x *= mix(1, 0.455, t * t);
   if (v.z >= 0) v.z *= mix(1, 0.845, t);      // 앞턱은 조금만
   else v.z *= mix(1, 0.36, t);                 // 목 쪽은 많이
 
-  // 이마는 살짝 평평 (둥근 이마는 아기처럼 보입니다)
+  /* 이마.
+     남자 이마는 평평하고 눈썹뼈가 튀어나옵니다. 여자 이마는 **둥글고
+     매끈**합니다. 그래서 평평하게 누르는 정도를 크게 줄였습니다. */
   const f = smoothstep(0.28, 0.98, y);
-  if (v.z > 0) v.z *= mix(1, 0.895, f);
+  if (v.z > 0) v.z *= mix(1, 0.955, f);
 
   // 뒤통수는 조금 더 뒤로 — 옆에서 볼 때 두상이 삽니다
   if (v.z < -0.12) v.z *= mix(1, 1.085, smoothstep(-0.12, -0.75, v.z));
@@ -141,30 +146,39 @@ function sculptFeatures(v) {
   for (const sx of [-1, 1]) {
     /* 눈두덩(눈썹뼈) — 앞으로 나오면서 눈이 그 아래로 들어갑니다.
        이 하나가 얼굴에 그늘을 만들어 입체감의 절반을 담당합니다. */
-    blob(v, sx * 0.290, 0.252, 0.640, 0.35, 0, 0.05, 1, 0.072, 1.25, 0.8, 1);
+    /* ⚠️ 눈두덩(눈썹뼈)을 0.072 로 세웠더니 인상이 확 남자가 됐습니다.
+          여자 얼굴은 눈썹뼈가 거의 안 나옵니다. 그늘은 눈구멍 깊이로만
+          만들고, 뼈는 아주 얕게 둡니다. */
+    blob(v, sx * 0.290, 0.256, 0.640, 0.35, 0, 0.05, 1, 0.026, 1.25, 0.8, 1);
 
     /* 눈구멍 — 눈두덩 **바로 아래**를 파냅니다.
        ⚠️ 처음엔 0.085 만 팠더니 눈알이 얼굴 **속에** 묻혀 첫 렌더에서
           눈이 아예 보이지 않았습니다. 표면이 z≈0.76 까지 들어와야
           눈알(반지름 0.132)이 제대로 자리를 잡습니다. */
-    blob(v, sx * 0.295, 0.082, 0.700, 0.335, 0, 0, -1, 0.250, 1.20, 0.88, 1);
+    /* ⚠️ 눈썹뼈를 낮추고도 눈구멍을 깊게(0.255) 뒀더니 눈이 퀭하게
+          꺼져 보였습니다. 둘은 짝이라 같이 낮춰야 합니다. */
+    blob(v, sx * 0.295, 0.076, 0.700, 0.330, 0, 0, -1, 0.190, 1.20, 0.92, 1);
     /* 눈 안쪽 구석(눈물언덕 쪽)은 더 깊습니다 */
     blob(v, sx * 0.160, 0.075, 0.720, 0.13, 0, 0, -1, 0.070);
 
     /* 광대 — 옆으로+앞으로. 광대가 없으면 얼굴이 계란처럼 밋밋합니다. */
-    blob(v, sx * 0.470, -0.055, 0.500, 0.40, sx * 0.45, 0.12, 0.85, 0.058);
+    blob(v, sx * 0.455, -0.020, 0.520, 0.40, sx * 0.35, 0.15, 0.90, 0.048);
 
-    /* 볼 아래 살짝 꺼짐 — 광대를 도드라지게 만드는 짝입니다. */
-    blob(v, sx * 0.420, -0.330, 0.520, 0.26, -sx * 0.4, 0, -0.25, 0.012);
+    /* 볼살.
+        예전엔 여기를 **파냈습니다**(광대를 도드라지게 하려고). 그러면
+        홀쭉하고 나이 들어 보입니다. 반대로 **붙여서** 통통하게 만듭니다.
+        사랑스러워 보이는 얼굴의 절반은 이 볼살입니다. */
+    blob(v, sx * 0.405, -0.240, 0.560, 0.34, sx * 0.35, 0.05, 0.9, 0.042);
 
     /* 눈 밑 애교살 — 아주 작게. 크면 부어 보입니다. */
-    blob(v, sx * 0.290, -0.030, 0.690, 0.15, 0, 0, 1, 0.020);
+    blob(v, sx * 0.292, -0.042, 0.690, 0.17, 0, 0, 1, 0.028);
 
     /* 콧방울 */
-    blob(v, sx * 0.100, -0.195, 0.790, 0.105, sx * 0.80, -0.1, 0.45, 0.055);
+    blob(v, sx * 0.082, -0.198, 0.790, 0.082, sx * 0.75, -0.1, 0.40, 0.030);
 
     /* 턱각(하악각) — 옆에서 볼 때 얼굴선을 만듭니다. */
-    blob(v, sx * 0.430, -0.560, 0.090, 0.32, sx, -0.15, 0.15, 0.040);
+    /* 턱각(하악각). 각지면 곧바로 남자 얼굴이 됩니다. 거의 지웁니다. */
+    blob(v, sx * 0.430, -0.560, 0.090, 0.30, sx, -0.15, 0.15, 0.006);
 
     /* 입꼬리 — 살짝 들어가야 입이 얼굴에 '붙어' 보입니다. */
     blob(v, sx * 0.175, -0.462, 0.720, 0.085, 0, 0, -1, 0.024);
@@ -173,21 +187,23 @@ function sculptFeatures(v) {
   /* 콧대 — 미간에서 코끝까지 길게. 세로로 긴 타원 영향범위.
      ⚠️ 코는 정면에서 **그림자로** 보입니다. 앞으로 충분히 안 나오면
         빛이 고르게 퍼져서 코가 아예 없는 것처럼 보입니다. */
-  blob(v, 0, 0.020, 0.740, 0.28, 0, 0, 1, 0.078, 0.40, 1.15, 1);
+  /* 코는 남녀 차이가 아주 큽니다. 콧대를 낮추고 코끝을 작고 살짝
+     들리게 만들면 곧바로 여성스럽고 어려 보입니다. */
+  blob(v, 0, 0.010, 0.740, 0.26, 0, 0, 1, 0.056, 0.32, 1.15, 1);
   /* 콧등 아래쪽이 조금 더 나옵니다 */
-  blob(v, 0, -0.070, 0.790, 0.22, 0, 0, 1, 0.105, 0.44, 1.1, 1);
+  blob(v, 0, -0.078, 0.790, 0.20, 0, 0, 1, 0.076, 0.36, 1.05, 1);
   /* 코끝 */
-  blob(v, 0, -0.172, 0.840, 0.130, 0, -0.18, 1, 0.115);
+  blob(v, 0, -0.176, 0.836, 0.104, 0, 0.10, 1, 0.088);
   /* 코 밑(비주) — 살짝 파여야 코가 얼굴에서 떨어집니다 */
-  blob(v, 0, -0.255, 0.800, 0.090, 0, 0, -1, 0.045, 1.4, 0.7, 1);
+  blob(v, 0, -0.252, 0.800, 0.082, 0, 0, -1, 0.034, 1.3, 0.7, 1);
 
   /* 인중 — 코 밑에서 윗입술까지의 세로 홈 */
   blob(v, 0, -0.320, 0.830, 0.075, 0, 0, -1, 0.020, 0.5, 1.2, 1);
 
   /* 윗입술 / 아랫입술.
      옆으로 길고(sx 1.9) 위아래로 얇은(sy 0.55) 범위라야 입술 모양이 납니다. */
-  blob(v, 0, -0.408, 0.795, 0.135, 0, 0, 1, 0.040, 1.9, 0.55, 1);
-  blob(v, 0, -0.508, 0.790, 0.140, 0, 0, 1, 0.048, 1.75, 0.62, 1);
+  blob(v, 0, -0.404, 0.795, 0.140, 0, 0, 1, 0.050, 1.85, 0.58, 1);
+  blob(v, 0, -0.512, 0.790, 0.148, 0, 0, 1, 0.062, 1.70, 0.66, 1);
 
   /* 입술 사이 선 — 얕게 파야 두 입술이 갈라져 보입니다 */
   blob(v, 0, MOUTH_Y, 0.815, 0.105, 0, 0, -1, 0.028, 2.0, 0.35, 1);
@@ -196,7 +212,9 @@ function sculptFeatures(v) {
   blob(v, 0, -0.605, 0.775, 0.095, 0, 0, -1, 0.022, 1.5, 0.6, 1);
 
   /* 턱끝 — 앞으로 그리고 살짝 아래로 */
-  blob(v, 0, -0.735, 0.660, 0.30, 0, -0.25, 1, 0.055, 1.1, 1, 1);
+  /* 턱끝. 넓고 각진 턱끝 → 남자. 좁고 둥근 턱끝 → 여자.
+     좌우 영향범위(0.68)를 좁혀서 뾰족하고 부드러운 턱을 만듭니다. */
+  blob(v, 0, -0.720, 0.660, 0.28, 0, -0.18, 1, 0.040, 0.68, 1, 1);
 
   /* 이마 중앙 아주 살짝 볼록 */
   blob(v, 0, 0.470, 0.760, 0.34, 0, 0, 1, 0.018);
@@ -283,8 +301,8 @@ function rotateJaw(x, y, z, angle) {
    텍스처 없이 화장을 합니다. 이게 있고 없고가 "인형 vs 사람"을 가릅니다.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const SKIN = [0.925, 0.700, 0.552];
-const BLUSH = [0.960, 0.478, 0.398];
+const SKIN = [0.968, 0.775, 0.672];
+const BLUSH = [0.972, 0.462, 0.432];
 const LIP = [0.788, 0.392, 0.376];
 const SHADE = [0.720, 0.508, 0.418];
 
@@ -319,7 +337,7 @@ function skinColorAt(x, y, z, out) {
     const dx = (x - sx * 0.295) / 0.26;
     const dy = (y - 0.095) / 0.16;
     const dz = (z - 0.64) / 0.30;
-    put(SHADE, falloff(dx * dx + dy * dy + dz * dz, 1) * 0.40);
+    put(SHADE, falloff(dx * dx + dy * dy + dz * dz, 1) * 0.10);
   }
 
   // 콧구멍 그늘
@@ -380,14 +398,19 @@ function hairOffset(x, y, z) {
     line = mix(0.185, -0.460, smoothstep(Math.PI * 0.5, Math.PI * 0.90, a));
   }
 
-  // 관자놀이가 살짝 파인 M자 — 이게 있으면 '바가지 머리'를 벗어납니다
-  line += Math.exp(-((a - 0.78) * (a - 0.78)) / 0.048) * 0.090;
+  /* 2026-08-20 — 여자 머리로 바꾸면서 **M자를 없앴습니다.**
+     관자놀이가 파인 M자 헤어라인은 남자 머리의 신호입니다.
+     대신 이마 위를 **앞머리(뱅)** 로 부드럽게 덮습니다. */
+  line -= Math.exp(-(a * a) / 0.50) * 0.115;
 
   /* ⚠️ 2026-08-19 첫 렌더 사고 — 헤어라인 아래 점을 머리 속으로
         **접어 넣었더니** 경계가 계단처럼 우둘투둘했습니다(톱니).
         대신 두께를 **연속**으로 두고, 경계 아래에서는 살짝 **음수**로
         만들어 피부 밑으로 들어가게 합니다. 그러면 두께가 0을 지나는
         지점이 저절로 매끈한 곡선이 됩니다. */
+  // 앞머리 끝이 자로 잰 듯 일직선이면 가발처럼 보입니다
+  line += 0.009 * Math.sin(a * 17.0) * Math.exp(-(a * a) / 0.9);
+
   const above = y - line;
   const grow = smoothstep(-0.06, 0.20, above);
 
@@ -395,7 +418,7 @@ function hairOffset(x, y, z) {
      두께가 완전히 균일하면 아무리 다듬어도 수영모자처럼 보입니다. */
   let volume = mix(0.055, 0.150, clamp01((y + 0.35) / 1.35));
   const part = Math.exp(-((a - 0.42) * (a - 0.42)) / 0.020) * clamp01((y - 0.35) / 0.5);
-  volume *= 1 - 0.42 * part * (x > 0 ? 1 : 0.25);
+  volume *= 1 - 0.30 * part * (x > 0 ? 1 : 0.30);
 
   // 결이 지도록 아주 낮은 주파수의 물결을 얹습니다
   volume *= 1 + 0.10 * Math.sin(a * 7.0) * clamp01((y + 0.1) / 0.8);
@@ -476,6 +499,122 @@ function bakeMorphs(THREE, geo, xs, ys, zs) {
   geo.morphAttributes.position = d.map((a) => new THREE.BufferAttribute(a, 3));
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   긴 머리 (커튼)
+
+   2026-08-20 — 목사님: "목소리는 여자인데 얼굴은 남자야."
+
+   얼굴 뼈대를 아무리 여성스럽게 깎아도, **머리가 짧으면 남자로 보입니다.**
+   사람이 성별을 판단할 때 가장 먼저 보는 것이 머리 길이이기 때문입니다.
+   그래서 두피에 붙은 캡 머리(hairOffset) 위에, 어깨까지 내려오는 머리를
+   한 겹 더 두릅니다.
+
+   만드는 법: 뒤통수 쪽 방위각 구간만 도는 **커튼**입니다.
+     - 가로 방향(u): 얼굴 앞(±A_FRONT 안쪽)은 비워 둡니다. 얼굴을 가리면
+       안 되니까요. 그 바깥에서 뒤통수를 돌아 반대쪽까지 이어집니다.
+     - 세로 방향(s): 정수리 근처에서 시작해 어깨까지 내려옵니다.
+       귀 위까지는 두상을 감싸고, 그 아래로는 곧게 떨어집니다.
+     - 끝단은 뒤가 길고 앞이 짧습니다. 일자로 자른 듯 평평하면
+       가발처럼 보입니다.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/** 이 높이에서 머리(두상)의 가로 반지름 근사값 */
+function skullHalfWidth(y) {
+  if (y <= 0.10) return 0.775;
+  const t = smoothstep(0.10, 1.06, y);
+  return 0.775 * (1 - 0.46 * Math.pow(t, 1.30));
+}
+
+function buildLongHair(THREE, Physical, HAIR) {
+  const NA = 108;              // 뒤통수를 도는 분할
+  const NS = 40;               // 위 → 아래 분할
+  const A_FRONT = 0.86;        // 이 각도 안쪽(얼굴 앞)에는 머리가 없습니다
+  const TOP_Y = 0.80;          // 커튼이 시작하는 높이 (캡 속에 숨습니다)
+  const BOT_Y = -1.90;         // 끝단 기준 높이 (어깨 위에 닿습니다)
+
+  const span = Math.PI * 2 - 2 * A_FRONT;
+  const nV = (NA + 1) * (NS + 1);
+  const positions = new Float32Array(nV * 3);
+  const colors = new Float32Array(nV * 3);
+
+  for (let j = 0; j <= NS; j++) {
+    const s = j / NS;
+    for (let i = 0; i <= NA; i++) {
+      const a = A_FRONT + (i / NA) * span;   // 뒤통수를 도는 방위각
+      const ca = Math.cos(a), sa = Math.sin(a);
+
+      /* 끝단 높이: 뒤가 길고, 얼굴 옆으로 올수록 짧습니다.
+         (cos a 는 뒤통수에서 -1, 옆에서 0 근처) */
+      /* 끝단이 자로 잰 듯 평평하면 가발입니다. 갈래마다 길이를 다르게
+         해서 머리카락 다발처럼 보이게 합니다. */
+      /* ⚠️ 부호를 반대로 뒀더니 **얼굴 옆 머리가 제일 길어서** 널빤지
+            두 장이 걸린 것처럼 보였습니다. 얼굴 쪽(ca > 0)이 짧아야
+            얼굴이 열리고 뒤가 길어야 머리채로 보입니다. */
+      const bottom = BOT_Y + 0.30 * ca
+        + 0.10 * Math.sin(a * 7.0) + 0.05 * Math.sin(a * 13.0 + 1.3);
+      const y = mix(TOP_Y, bottom, s);
+
+      /* 가로 반지름: 귀 위까지는 두상을 따라가고 아래로는 곧게.
+         끝으로 갈수록 아주 살짝 안으로 모읍니다(뻗치지 않게). */
+      let r = skullHalfWidth(y);
+      r *= 1.045;
+      r += 0.058 + 0.085 * Math.sin(Math.min(1, s * 1.15) * Math.PI);
+      r *= 1 - 0.42 * smoothstep(0.58, 1, s);   // 끝으로 갈수록 확실히 가늘게
+
+      /* ⚠️ 커튼은 **면 한 겹**이라, 앞에서 보면 종잇장처럼 보입니다.
+            앞 가장자리를 안쪽으로 말아 넣으면 두께가 있는 것처럼 보입니다.
+            (첫 렌더에서 얼굴 옆에 리본 두 장이 걸린 것처럼 됐습니다.) */
+      const eIn = Math.min((a - A_FRONT) / 0.30, (A_FRONT + span - a) / 0.30);
+      const curl = 1 - clamp01(eIn);
+      r *= 1 - 0.13 * curl;
+
+      // 머릿결 — 아주 낮은 주파수의 물결이라야 '결'로 보입니다
+      r += 0.016 * Math.sin(a * 8.0) * smoothstep(0.05, 0.45, s);
+
+      const x = r * sa;
+      const z = r * ca * 1.20 - 0.13 * curl;  // 앞뒤가 더 두꺼운 두상 비율 + 말린 가장자리
+
+      const k = j * (NA + 1) + i;
+      positions[k * 3] = x;
+      positions[k * 3 + 1] = y;
+      positions[k * 3 + 2] = z;
+
+      /* 색: 정수리는 밝고 끝은 어둡습니다. 균일한 색이면 덩어리로 보입니다. */
+      const lift = 1 + 0.30 * (1 - smoothstep(0, 0.55, s)) - 0.12 * smoothstep(0.6, 1, s);
+      colors[k * 3] = lift; colors[k * 3 + 1] = lift; colors[k * 3 + 2] = lift;
+    }
+  }
+
+  const index = [];
+  for (let j = 0; j < NS; j++) {
+    for (let i = 0; i < NA; i++) {
+      const A = j * (NA + 1) + i, B = A + 1;
+      const C = (j + 1) * (NA + 1) + i, D = C + 1;
+      index.push(A, C, B, B, C, D);
+    }
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  g.setIndex(index);
+  g.computeVertexNormals();
+
+  const mesh = new THREE.Mesh(
+    g,
+    new Physical({
+      color: HAIR, vertexColors: true,
+      roughness: 0.58, metalness: 0.02,
+      sheen: 0.8, sheenColor: new THREE.Color(0xb08a60), sheenRoughness: 0.40,
+      // 안쪽 면도 그려야 고개를 돌렸을 때 구멍이 안 뚫립니다
+      side: THREE.DoubleSide,
+    })
+  );
+  mesh.frustumCulled = false;
+  mesh.name = 'LongHair';
+  return mesh;
+}
+
 /**
  * **입술 판.**
  *
@@ -502,7 +641,7 @@ function buildLipPatch(THREE, Physical) {
   const colors = new Float32Array(nV * 3);
   const rgb = [0, 0, 0];
 
-  const LIP_MID = [0.755, 0.487, 0.438];
+  const LIP_MID = [0.848, 0.430, 0.418];
   const LIP_IN = [0.300, 0.105, 0.115];
 
   for (let j = 0; j <= RINGS; j++) {
@@ -628,8 +767,8 @@ function weldNormals(geo) {
  *            jawGroup, eyes, lids, brows, influences}}
  */
 export function buildFace(THREE, opts = {}) {
-  const HAIR = opts.hair ?? 0x33241b;
-  const SHIRT = opts.shirt ?? 0x3f5d7a;
+  const HAIR = opts.hair ?? 0x4a3222;
+  const SHIRT = opts.shirt ?? 0xb4707f;
 
   /* ── 머리 지오메트리 ────────────────────────────────────────────────── */
 
@@ -818,14 +957,14 @@ export function buildFace(THREE, opts = {}) {
      사람이 계산할 수 없습니다. surfaceAt 이 그 값을 알려줍니다.
      각막이 0.02 정도만 튀어나와야 얼굴 **안에** 들어앉습니다. */
   const EYE_X = 0.295;
-  const EYE_Y = 0.072;
+  const EYE_Y = 0.066;
   const EYE = {
-    x: EYE_X, y: EYE_Y, r: 0.144,
-    z: surfaceAt(EYE_X, EYE_Y).z - 0.100,
+    x: EYE_X, y: EYE_Y, r: 0.148,
+    z: surfaceAt(EYE_X, EYE_Y).z - 0.118,
   };
 
   const scleraMat = new Physical({
-    color: 0xefe9e1, roughness: 0.18, metalness: 0,
+    color: 0xfaf6f0, roughness: 0.18, metalness: 0,
     clearcoat: 0.9, clearcoatRoughness: 0.08,
   });
   const irisMat = new THREE.MeshStandardMaterial({
@@ -896,13 +1035,19 @@ export function buildFace(THREE, opts = {}) {
     // z 로는 **덜** 부풀립니다. 앞뒤로 키우면 눈이 얼굴 밖으로 튀어나온
     // 고글처럼 보입니다(세 번째 렌더에서 그랬습니다).
     lidPivot.position.set(sx * EYE.x, EYE.y, EYE.z - 0.012);
-    lidPivot.scale.set(1.44, 1.22, 1.00);
+    lidPivot.scale.set(1.46, 1.26, 1.00);
     // 눈꼬리가 눈머리보다 살짝 올라가야 사람 눈처럼 보입니다
-    lidPivot.rotation.z = sx * 0.055;
+    lidPivot.rotation.z = sx * 0.075;
     headInner.add(lidPivot);
 
+    /* ⚠️ 눈꺼풀 색을 손으로 적으면 피부색을 바꿀 때마다 어긋납니다.
+          (밝은 피부로 바꿨더니 눈 감을 때 주황 렌즈처럼 보였습니다.)
+          그 자리의 **피부색을 그대로 계산해서** 씁니다. */
+    const lidRGB = [0, 0, 0];
+    skinColorAt(sx * EYE.x, EYE.y + 0.06, EYE.z + 0.10, lidRGB);
     const lidMat = new Physical({
-      color: 0xe3ad84, roughness: 0.74, sheen: 0.5,
+      color: new THREE.Color(lidRGB[0], lidRGB[1], lidRGB[2]),
+      roughness: 0.74, sheen: 0.5,
       sheenColor: new THREE.Color(0xff8a70), sheenRoughness: 0.9,
     });
     const lashMat = new THREE.MeshStandardMaterial({ color: 0x1c1109, roughness: 0.45 });
@@ -914,8 +1059,8 @@ export function buildFace(THREE, opts = {}) {
     ));
     // 속눈썹 선 — 뚜껑 가장자리에 아주 얇은 띠 (두꺼우면 화장한 것처럼 됩니다)
     upperG.add(new THREE.Mesh(
-      new THREE.SphereGeometry(EYE.r * 1.062, 36, 6, 0, Math.PI * 2,
-        Math.PI * 0.458, Math.PI * 0.042),
+      new THREE.SphereGeometry(EYE.r * 1.075, 36, 8, 0, Math.PI * 2,
+        Math.PI * 0.452, Math.PI * 0.042),
       lashMat
     ));
     lidPivot.add(upperG);
@@ -942,7 +1087,7 @@ export function buildFace(THREE, opts = {}) {
        사람 눈꺼풀 틈은 위 25° / 아래 18° 정도입니다. */
     const lid = {
       upper: upperG, lower: lowerG,
-      upOpen: -0.82, upShut: 0.215,
+      upOpen: -0.88, upShut: 0.205,
       loOpen: 0.62, loShut: -0.145,
     };
     upperG.rotation.x = lid.upOpen;
@@ -958,15 +1103,17 @@ export function buildFace(THREE, opts = {}) {
           덤으로 끝이 가늘어져 진짜 눈썹처럼 보입니다. */
     const browG = new THREE.Group();
     const browMat = new THREE.MeshStandardMaterial({ color: HAIR, roughness: 0.62 });
-    const CLUMPS = 15;
+    const CLUMPS = 17;
     for (let i = 0; i < CLUMPS; i++) {
       const t = i / (CLUMPS - 1);                    // 0 = 눈머리, 1 = 눈꼬리
-      const bx = mix(0.150, 0.478, t);
+      const bx = mix(0.168, 0.492, t);
       // 가운데가 가장 높은 아치
-      const by = 0.252 + Math.sin(t * Math.PI) * 0.062 - t * 0.020;
+      /* 여자 눈썹은 남자보다 **높고 가늘고 아치가 큽니다.**
+         (남자 눈썹은 눈에 붙어서 굵고 곧습니다.) */
+      const by = 0.288 + Math.sin(t * Math.PI) * 0.080 - t * 0.034;
       const s = surfaceAt(bx, by);
       // 끝으로 갈수록 가늘어집니다
-      const thick = 0.0235 * (0.42 + 0.58 * Math.sin(Math.min(1, t * 1.12) * Math.PI) ** 0.5);
+      const thick = 0.0165 * (0.38 + 0.62 * Math.sin(Math.min(1, t * 1.10) * Math.PI) ** 0.5);
       const c = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), browMat);
       c.scale.set(thick * 1.5, thick, thick * 0.8);
       c.position.set(sx * s.x, s.y, s.z + thick * 0.35);
@@ -1020,15 +1167,19 @@ export function buildFace(THREE, opts = {}) {
   hairMesh.frustumCulled = false;
   headInner.add(hairMesh);
 
+  // 어깨까지 오는 긴 머리 — 성별 인상을 결정하는 가장 큰 요소입니다
+  const longHair = buildLongHair(THREE, Physical, HAIR);
+  headInner.add(longHair);
+
   /* ── 목 · 어깨 ──────────────────────────────────────────────────────── */
   const neckMat = new Physical({
-    color: 0xd8ac8c, roughness: 0.76, sheen: 0.45,
+    color: 0xefbb9d, roughness: 0.76, sheen: 0.45,
     sheenColor: new THREE.Color(0xff8a70), sheenRoughness: 0.9,
   });
   /* 목은 **턱 안쪽에서** 시작해야 합니다. 턱 밑에서 시작하면
      머리가 막대기 위에 얹힌 것처럼 보입니다(첫 렌더가 그랬습니다). */
   const neck = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.305, 0.46, 1.20, 40, 1, true),
+    new THREE.CylinderGeometry(0.285, 0.44, 1.20, 40, 1, true),
     neckMat
   );
   neck.position.set(0, -1.16, -0.06);
@@ -1039,8 +1190,8 @@ export function buildFace(THREE, opts = {}) {
     new THREE.SphereGeometry(1, 44, 30),
     new Physical({ color: SHIRT, roughness: 0.88, sheen: 0.35 })
   );
-  shoulders.scale.set(1.75, 0.92, 0.82);
-  shoulders.position.y = -2.20;
+  shoulders.scale.set(1.62, 0.88, 0.80);
+  shoulders.position.y = -2.02;
   bodyGroup.add(shoulders);
 
   // 옷깃 — 목이 옷 속으로 들어가 보이게 하는 최소한의 장치
@@ -1049,7 +1200,7 @@ export function buildFace(THREE, opts = {}) {
     new Physical({ color: SHIRT, roughness: 0.82 })
   );
   collar.rotation.x = Math.PI * 0.5;
-  collar.position.y = -1.58;
+  collar.position.y = -1.44;
   collar.scale.set(1, 1, 0.78);
   bodyGroup.add(collar);
 
