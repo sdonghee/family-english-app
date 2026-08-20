@@ -246,7 +246,12 @@ module.exports = async function handler(req, res) {
         '먼저 학생이 한 말을 그대로 받아쓰고, 그 다음 줄부터 선생님으로서 대답하세요.\n' +
         '반드시 이 형식을 지키세요:\n' +
         'HEARD: <학생이 한 말 그대로. 문법 교정하지 말 것>\n' +
-        'REPLY: <선생님 대사>\n' +
+        'REPLY: <선생님 대사 — 절대 비우지 말 것>\n' +
+        'FIX: <학생이 한 말> || <자연스럽게 고친 말> || <한국어로 짧은 설명>\n' +
+        'WORD: <가르칠 단어> || <한국어 뜻> || <짧은 예문>\n' +
+        '\n' +
+        'FIX 와 WORD 는 **필요할 때만** 씁니다. 없으면 그 줄 자체를 쓰지 마세요.\n' +
+        'REPLY 는 **매 턴 반드시** 있어야 합니다.\n' +
         '\n' +
         '⚠️ 받아쓰기 규칙 (이것을 어기면 앱이 망가집니다):\n' +
         '- **들리지 않는 말을 지어내지 마세요.** 오디오에 실제로 들어 있는 소리만 적으세요.\n' +
@@ -256,6 +261,26 @@ module.exports = async function handler(req, res) {
         '  대화 흐름상 그럴듯한 문장을 지어내는 것이 가장 나쁜 행동입니다.\n' +
         '- 일부만 알아들었으면 알아들은 부분만 적으세요. 나머지를 메우지 마세요.\n' +
         '- 비워두는 것은 실패가 아닙니다. 앱이 "한 번 더 말해 주세요"라고 안내합니다.\n' +
+        '\n' +
+        '🎯 좋은 선생님이 되는 법 (가장 중요합니다):\n' +
+        '  이 앱의 목적은 **문장 교정**이 아니라 **대화**입니다.\n' +
+        '  교정은 대화를 돕는 양념이지 요리가 아닙니다.\n' +
+        '\n' +
+        '  1) 학생이 말한 **내용**에 먼저 반응하세요.\n' +
+        '     "하와이 세 섬에 다녀왔다" → 어느 섬이 제일 좋았는지, 뭘 했는지,\n' +
+        '     누구와 갔는지 물으세요. 문장 구조가 아니라 **이야기**에 반응합니다.\n' +
+        '  2) 아는 것을 보태세요. 선생님도 대화에 기여해야 합니다.\n' +
+        '     "Kauai is so green — people call it the Garden Isle." 처럼요.\n' +
+        '     한 마디도 보태지 않고 되묻기만 하면 취조가 됩니다.\n' +
+        '  3) 이전 대화를 기억하고 이어가세요. 아까 목사님이라고 했으면\n' +
+        '     설교 이야기를, 아기가 있다고 했으면 그 아기 이야기를 이어가세요.\n' +
+        '  4) 매번 같은 틀로 시작하지 마세요. 특히 "Ah, you mean ..." 이나\n' +
+        '     "Tell me more about it!" 을 **반복하지 마세요.** 그건 대화가\n' +
+        '     아니라 자동응답기입니다.\n' +
+        '  5) 교정은 **꼭 필요할 때만**. 매 턴 고치지 마세요.\n' +
+        '     의미가 통했으면 그냥 넘어가고 대화를 이어가는 편이 낫습니다.\n' +
+        '     하루에 서너 번이면 충분합니다.\n' +
+        '  6) 길이: 두세 문장. 반응 + (보탠 것) + 질문 하나.\n' +
         '\n' +
         '⚠️ REPLY 규칙 (이것도 어기면 앱이 망가집니다):\n' +
         '- **교육 도구를 호출할 때도 REPLY 는 반드시 채우세요.**\n' +
@@ -309,8 +334,13 @@ module.exports = async function handler(req, res) {
      */
     generationConfig: { temperature: 0.4, maxOutputTokens: 800 },
   };
-  const tools = toolsFor(profile, stage);
-  if (tools) bodyData.tools = tools;
+  /* ⚠️ 2026-08-19 — 함수 호출(tools)을 **일부러 쓰지 않습니다.**
+     REST generateContent 에서 모델이 함수를 부르면 응답에 함수 호출만 있고
+     **글자가 없습니다.** 무상태 REST 라 함수 결과를 돌려주는 왕복이 없어서,
+     모델은 영영 말을 이어갈 기회를 못 받습니다. 그 결과 매 턴 대사가 비었고
+     서버 안전망이 만든 "Ah, you mean ... Tell me more about it!" 이 화면을
+     도배했습니다. 이제 교정·단어는 FIX:/WORD: 줄로 **같은 응답 안에서**
+     받습니다. @see api/_parseTurn.js extractTeaching */
  
   const attempts = [];
  
@@ -342,7 +372,10 @@ module.exports = async function handler(req, res) {
       const parts = data?.candidates?.[0]?.content?.parts || [];
  
       /* 함수 호출(교육 도구)과 글자를 분리합니다. */
-      const toolCalls = parts
+      /* ⚠️ 이제 함수 호출을 쓰지 않습니다(위 bodyData 주석 참고).
+         혹시 모델이 그래도 함수를 부르면 그것도 받아둡니다 — 버리면
+         가르친 내용이 사라지므로, 있으면 쓰고 없으면 글자에서 뽑습니다. */
+      const fnCalls = parts
         .filter((p) => p.functionCall)
         .map((p) => ({ name: p.functionCall.name, args: p.functionCall.args || {} }));
  
@@ -354,11 +387,14 @@ module.exports = async function handler(req, res) {
          이 부분만 따로 검사할 수 있어야 합니다.
          → api/_parseTurn.js, tools/turn-queue.test.mjs 참고 */
       // reply 는 아래 안전망에서 채울 수 있으므로 let 입니다
-      let { heard, reply, heardEmpty } = parseTurnText({
+      let { heard, reply, heardEmpty, toolCalls: textCalls } = parseTurnText({
         rawText,
         userText,
         hasAudio: !!audioB64,
       });
+
+      /* 글자에서 뽑은 것(FIX/WORD)을 우선 씁니다. 함수 호출은 예비입니다. */
+      let toolCalls = textCalls.length ? textCalls : fnCalls;
  
       if (!reply && !toolCalls.length) {
         attempts.push({ model, status: 200, detail: '응답에 대사가 없습니다' });
@@ -399,7 +435,7 @@ module.exports = async function handler(req, res) {
           `[talk] 못 알아들은 턴인데 도구를 ${toolCalls.length}개 불렀습니다 — 전부 버립니다:`,
           toolCalls.map((t) => t.name).join(', ')
         );
-        toolCalls.length = 0;
+        toolCalls = [];
       }
  
       if (!reply && !toolCalls.length && heardEmpty) {

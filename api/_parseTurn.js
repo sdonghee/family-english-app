@@ -66,7 +66,105 @@ function parseTurnText({ rawText = '', userText = '', hasAudio = false } = {}) {
      이때 선생님이 대답하면 아무도 말 안 했는데 혼자 떠드는 꼴이 됩니다. */
   const heardEmpty = !!hasAudio && formatted && !heard;
 
-  return { heard, reply, heardEmpty, formatted };
+  /* 가르치는 내용은 **대사와 같은 응답 안에서** 뽑아냅니다. @see extractTeaching */
+  const toolCalls = extractTeaching(text);
+
+  /* ⚠️ REPLY_RE 는 여러 줄을 잡습니다(선생님이 두 문장 말할 수 있으므로).
+     그래서 그 아래 붙은 FIX/WORD 줄까지 대사에 딸려 들어옵니다.
+     그대로 두면 선생님이 "FIX: ... || ..." 를 **소리내어 읽습니다.**
+     반드시 걷어냅니다. */
+  reply = stripTeachingLines(reply);
+
+  return { heard, reply, heardEmpty, formatted, toolCalls };
 }
 
-module.exports = { parseTurnText, HEARD_RE, REPLY_RE };
+/* ═══════════════════════════════════════════════════════════════════════════
+   가르치기(교정·단어)를 **글자에서** 뽑아냅니다.
+
+   ⚠️ 2026-08-19 — "계속 문장만 고치고 Tell me more about it! 만 한다"
+
+   예전에는 교정 카드를 Gemini 의 **함수 호출(function calling)** 로 받았습니다.
+   그런데 REST generateContent 에서 모델이 함수를 부르면, 그 응답에는
+   **함수 호출만 있고 글자가 없습니다.** 모델 입장에서는 함수 결과를 받은
+   뒤에 말을 이어갈 생각이기 때문입니다. 하지만 이 앱은 무상태 REST 라
+   함수 결과를 돌려주는 왕복이 없습니다.
+
+   그래서 매 턴 대사가 비었고, 서버 안전망이 대신 만든
+   "Ah, you mean "...". Tell me more about it!" 이 **주력이 되어버렸습니다.**
+   화면이 그 문장으로 도배된 이유입니다. 대화가 이어질 수가 없었습니다.
+
+   해법: 함수 호출을 걷어내고 **한 번의 응답 안에 글자로** 같이 받습니다.
+       HEARD: ...
+       REPLY: ...                    ← 항상 채워짐 (대화가 끊기지 않음)
+       FIX: 틀린문장 || 고친문장 || 한국어 설명
+       WORD: 단어 || 뜻 || 예문
+
+   이러면 왕복이 늘지 않고(Vercel Hobby 10초 제한 안전), 대사는 언제나
+   존재하며, 카드도 그대로 뜹니다. 화면 코드는 한 줄도 안 바꿔도 됩니다 —
+   기존 toolCalls 모양으로 변환해서 넘기기 때문입니다.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/** `FIX: a || b || c` — 줄 하나 안에서만 찾습니다(REPLY 를 삼키지 않도록). */
+const FIX_RE = /^[^\S\r\n]*FIX:[^\S\r\n]*([^\r\n]*)$/im;
+const WORD_RE = /^[^\S\r\n]*WORD:[^\S\r\n]*([^\r\n]*)$/im;
+
+function splitFields(line) {
+  return String(line || '')
+    .split('||')
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function extractTeaching(text) {
+  const calls = [];
+
+  const fix = text.match(FIX_RE);
+  if (fix) {
+    const [original, corrected, explanation_ko] = splitFields(fix[1]);
+    /* 원문과 고친 문장이 **둘 다** 있고 서로 달라야 카드를 띄웁니다.
+       같은 문장을 "고쳤다"고 보여주면 학습자가 뭐가 틀렸는지 못 찾습니다. */
+    if (original && corrected && original !== corrected) {
+      calls.push({
+        name: 'correct_sentence',
+        args: {
+          original,
+          corrected,
+          explanation_ko: explanation_ko || '',
+          error_type: '자연스러움',
+        },
+      });
+    }
+  }
+
+  const word = text.match(WORD_RE);
+  if (word) {
+    const [w, meaning_ko, example_en] = splitFields(word[1]);
+    if (w && meaning_ko) {
+      calls.push({
+        name: 'teach_word',
+        args: { word: w, meaning_ko, example_en: example_en || '' },
+      });
+    }
+  }
+
+  return calls;
+}
+
+/** 대사에서 FIX/WORD 줄을 걷어냅니다 (선생님이 그걸 소리내어 읽으면 안 됩니다). */
+function stripTeachingLines(reply) {
+  return String(reply || '')
+    .split(/\r?\n/)
+    .filter((l) => !/^[^\S\r\n]*(FIX|WORD)[^\S\r\n]*:/i.test(l))
+    .join('\n')
+    .trim();
+}
+
+module.exports = {
+  parseTurnText,
+  extractTeaching,
+  stripTeachingLines,
+  HEARD_RE,
+  REPLY_RE,
+  FIX_RE,
+  WORD_RE,
+};
