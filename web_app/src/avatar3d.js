@@ -34,6 +34,11 @@
  * ----------------------------------------------------------------------------
  */
 
+/* 얼굴 조각은 avatarFace.js 가 전담합니다. 이 파일은 조명·카메라·움직임만
+   맡습니다. (한 파일에 다 넣었더니 900줄이 넘어가고 어디를 고쳐야 하는지
+   찾을 수가 없었습니다.) */
+import { buildFace, MORPH, JAW_ANGLE } from './avatarFace.js';
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Three.js 로딩
 
@@ -229,7 +234,7 @@ export class ThreeAvatar {
     renderer.setSize(W, H, false);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 1.0;
     renderer.domElement.className = 'avatar-canvas avatar-canvas-3d';
     renderer.domElement.style.width = '100%';
     renderer.domElement.style.height = '100%';
@@ -248,19 +253,30 @@ export class ThreeAvatar {
        영상통화처럼 보이게 하는 3점 조명.
        키라이트를 살짝 옆에서 주면 코와 광대에 그림자가 생겨 입체감이 삽니다.
        정면에서만 비추면 얼굴이 납작해 보입니다.                          */
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x404060, 1.4));
+    /* ⚠️ 예전 값(반구 1.4 + 키 2.1 + 필 0.7 + 림 1.5)은 **너무 밝아서**
+          얼굴이 하얗게 날아갔습니다. 코와 광대의 그림자가 사라져서
+          이목구비가 안 보이고 석고상처럼 보였습니다. 총량을 절반쯤으로
+          줄이고, 키라이트를 더 옆으로 옮겨 그림자를 만듭니다. */
+    scene.add(new THREE.HemisphereLight(0xdfe9ff, 0x3a3140, 0.55));
 
-    const key = new THREE.DirectionalLight(0xfff4e8, 2.1);
-    key.position.set(1.2, 1.8, 2.2);
+    const key = new THREE.DirectionalLight(0xfff1dd, 1.25);
+    key.position.set(1.6, 1.1, 2.0);
     scene.add(key);
 
-    const fill = new THREE.DirectionalLight(0xdce8ff, 0.7);
-    fill.position.set(-1.8, 0.6, 1.4);
+    /* 아래에서 올라오는 아주 약한 반사광.
+       인물 사진에서 반사판을 대는 것과 같습니다. 이게 없으면 코 밑과
+       턱 아래가 까맣게 죽어서 얼굴이 초췌해 보입니다. */
+    const bounce = new THREE.DirectionalLight(0xffd9c0, 0.42);
+    bounce.position.set(0, -1.8, 1.6);
+    scene.add(bounce);
+
+    const fill = new THREE.DirectionalLight(0xcfe0ff, 0.38);
+    fill.position.set(-2.0, 0.2, 1.6);
     scene.add(fill);
 
     // 림라이트: 머리 윤곽을 배경에서 떼어냅니다. 이게 있으면 확 삽니다.
-    const rim = new THREE.DirectionalLight(0xbfd4ff, 1.5);
-    rim.position.set(-0.6, 1.4, -2.2);
+    const rim = new THREE.DirectionalLight(0xb9cdff, 0.75);
+    rim.position.set(-0.8, 1.5, -2.2);
     scene.add(rim);
 
     // THREE.Clock 은 최신 버전에서 deprecated 입니다(콘솔 경고). 필요한 건
@@ -268,29 +284,32 @@ export class ThreeAvatar {
     this._t0 = performance.now();
     this._lastFrameAt = this._t0;
 
-    /* --- 모델 ---------------------------------------------------------- */
-    let loaded = false;
-    const candidates = this.opts.modelUrl
-      ? [this.opts.modelUrl]
-      : DEFAULT_MODEL_URLS;
+    /* --- 모델 ----------------------------------------------------------
+       ⚠️ 2026-08-19 로 바뀐 정책: **직접 만든 얼굴이 기본**입니다.
+          예전에는 readyplayer.me 에서 GLB 를 먼저 받아보고, 실패하면
+          폴백 얼굴을 썼습니다. 그런데 실제로는 **한 번도 성공한 적이
+          없었고**(목사님 화면에 늘 폴백이 떴습니다), 대신 시작할 때마다
+          20초 × 2번을 기다렸습니다. 얼굴이 나오기까지 40초가 걸린 겁니다.
 
-    for (const url of candidates) {
+          이제 avatarFace.js 가 만드는 얼굴이 충분히 좋으므로, 주소를
+          **명시적으로 넣었을 때만** 남의 서버를 부릅니다. 기본 경로에는
+          네트워크가 아예 끼지 않습니다. */
+    let loaded = false;
+    if (this.opts.modelUrl) {
       try {
-        await this._loadGlb(GLTFLoader, url);
+        await this._loadGlb(GLTFLoader, this.opts.modelUrl);
         loaded = true;
-        break;
       } catch (err) {
-        console.warn('[avatar3d] 모델 로드 실패:', url, err?.message || err);
+        console.warn('[avatar3d] 모델 로드 실패:', this.opts.modelUrl, err?.message || err);
+        this.opts.onNote?.('넣어주신 아바타 주소를 못 읽어서 기본 얼굴로 표시합니다.');
       }
     }
 
     if (this._disposed) return;
 
     if (!loaded) {
-      // 남의 서버가 죽어도 얼굴은 나와야 합니다.
       this.usingFallback = true;
       this._buildFallbackHead();
-      this.opts.onNote?.('3D 모델을 내려받지 못해 기본 얼굴로 표시합니다.');
     }
 
     this._frameCamera();
@@ -395,118 +414,20 @@ export class ThreeAvatar {
      ─────────────────────────────────────────────────────────────────────── */
 
   _buildFallbackHead() {
-    const THREE = this.THREE;
-    const g = new THREE.Group();
+    /* 얼굴 조립은 전부 avatarFace.js 가 합니다.
+       여기서는 받아온 부품을 애니메이션 루프가 아는 이름에 걸어둡니다. */
+    const face = buildFace(this.THREE, this.opts.look || {});
+    this.scene.add(face.root);
 
-    const skin = new THREE.MeshStandardMaterial({
-      color: 0xf1c8a8, roughness: 0.82, metalness: 0.0,
-    });
-    const dark = new THREE.MeshStandardMaterial({
-      color: 0x2b2118, roughness: 0.75,
-    });
-
-    // 머리 (살짝 눌린 구 — 완전한 구는 공처럼 보입니다)
-    const head = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 48), skin);
-    head.scale.set(0.92, 1.06, 0.95);
-    g.add(head);
-
-    /* 머리카락.
-       ⚠️ 반구를 그대로 씌우면 이마를 지나 **눈까지 덮습니다**.
-          (처음에 그렇게 만들었다가 눈이 가려진 얼굴이 나왔습니다.)
-          위쪽 40%만 잘라서 모자처럼 얹고, 살짝 위로 올립니다. */
-    const hair = new THREE.Mesh(
-      new THREE.SphereGeometry(1.0, 40, 32, 0, Math.PI * 2, 0, Math.PI * 0.40),
-      dark
-    );
-    hair.scale.set(0.95, 1.10, 0.98);
-    hair.position.y = 0.10;
-    g.add(hair);
-
-    // 목
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.42, 0.6, 24), skin);
-    neck.position.y = -1.12;
-    g.add(neck);
-
-    /* 눈.
-       눈은 얼굴 **표면 가까이** 붙어야 합니다. z 를 크게 주면 눈알이
-       얼굴 밖으로 튀어나와 벌레처럼 보입니다. 구의 반지름이 z=0 기준
-       약 0.95 이므로 0.80 정도가 살짝 파묻힌 자연스러운 위치입니다. */
-    const white = new THREE.MeshStandardMaterial({ color: 0xf7f4f0, roughness: 0.22 });
-    const iris = new THREE.MeshStandardMaterial({ color: 0x5b3a24, roughness: 0.18 });
-    this._fbEyes = [];
-    this._fbLids = [];
-    const EYE_Y = 0.12, EYE_Z = 0.80, EYE_X = 0.30;
-
-    for (const sx of [-1, 1]) {
-      const eye = new THREE.Group();
-      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.135, 24, 24), white);
-      ball.scale.set(1, 0.82, 0.7);   // 눈은 완전한 구가 아니라 살짝 납작합니다
-      eye.add(ball);
-      const ir = new THREE.Mesh(new THREE.SphereGeometry(0.062, 20, 20), iris);
-      ir.position.z = 0.085;
-      eye.add(ir);
-      const pu = new THREE.Mesh(new THREE.SphereGeometry(0.028, 16, 16),
-        new THREE.MeshBasicMaterial({ color: 0x120c08 }));
-      pu.position.z = 0.115;
-      eye.add(pu);
-      // 하이라이트 — 이 점 하나가 "살아있는 눈"을 만듭니다
-      const hl = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 10),
-        new THREE.MeshBasicMaterial({ color: 0xffffff }));
-      hl.position.set(0.035, 0.035, 0.125);
-      eye.add(hl);
-
-      eye.position.set(sx * EYE_X, EYE_Y, EYE_Z);
-      g.add(eye);
-      this._fbEyes.push(eye);
-
-      /* 눈꺼풀.
-         ⚠️ 예전엔 눈 위치에 반구를 그대로 뒀더니 **항상 감은 눈**이
-            됐습니다. 눈꺼풀은 평소엔 눈 **위쪽에 숨어 있다가**
-            깜빡일 때만 내려와야 합니다. 그래서 기본 y 를 눈보다
-            위로 두고, blink 값만큼 아래로 내립니다. */
-      const lid = new THREE.Mesh(
-        new THREE.SphereGeometry(0.145, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.5),
-        skin
-      );
-      lid.scale.set(1.02, 0.75, 0.72);
-      lid.position.set(sx * EYE_X, EYE_Y + 0.135, EYE_Z + 0.005);
-      g.add(lid);
-      this._fbLids.push({ mesh: lid, restY: EYE_Y + 0.135, closedY: EYE_Y + 0.012 });
-    }
-
-    // 눈썹 — 눈 위, 머리카락 아래 사이 공간에
-    this._fbBrows = [];
-    for (const sx of [-1, 1]) {
-      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.04, 0.05), dark);
-      brow.position.set(sx * EYE_X, EYE_Y + 0.27, EYE_Z + 0.06);
-      brow.rotation.z = sx * 0.07;
-      g.add(brow);
-      this._fbBrows.push({ mesh: brow, restY: EYE_Y + 0.27, sx });
-    }
-
-    /* 코 — 원뿔을 앞으로 눕힙니다.
-       rotation.x = +90° 로 하면 뾰족한 끝이 **뒤로** 갑니다(얼굴 안쪽).
-       그래서 화면에는 점 하나만 보입니다. -90° 여야 앞을 향합니다. */
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.10, 0.26, 18), skin);
-    nose.rotation.x = -Math.PI * 0.5;
-    nose.position.set(0, -0.10, 0.88);
-    g.add(nose);
-
-    // 입 — 스케일로 벌리고 오므립니다 (모프타겟 대용)
-    const mouth = new THREE.Mesh(
-      new THREE.SphereGeometry(0.22, 28, 20),
-      new THREE.MeshStandardMaterial({ color: 0x8c3a40, roughness: 0.5 })
-    );
-    mouth.position.set(0, -0.48, 0.78);
-    mouth.scale.set(1.0, 0.12, 0.5);
-    g.add(mouth);
-    this._fbMouth = mouth;
-
-    g.position.y = 0.02;
-    this.scene.add(g);
-    this.model = g;
-    this._fbHead = g;
-    this.head = g;   // 고개 움직임이 이 그룹에 걸립니다
+    this.model = face.root;
+    this._fb = face;
+    this._fbHead = face.headGroup;
+    this.head = face.headGroup;       // 고개 흔들림이 여기 걸립니다
+    this.neck = null;                  // 목은 따로 안 돌립니다(어깨가 휘둘립니다)
+    this.spine = face.bodyGroup;       // 호흡만 아주 미세하게
+    this._fbEyes = face.eyes;
+    this._fbLids = face.lids;
+    this._fbBrows = face.brows;
   }
 
   /* ───────────────────────────────────────────────────────────────────────
@@ -518,10 +439,9 @@ export class ThreeAvatar {
     if (!this.model) return;
 
     if (this.usingFallback) {
-      // 머리(지름 약 2.1)가 세로로 다 들어오고 목까지 살짝 보이는 거리.
-      // fov 28° 에서 z=5.9 면 화면 세로에 약 2.9 만큼 들어옵니다.
-      this.camera.position.set(0, 0.02, 5.9);
-      this.camera.lookAt(0, -0.05, 0);
+      // 얼굴이 꽉 차되 어깨가 아래쪽에 살짝 걸치는 거리 (영상통화 구도).
+      this.camera.position.set(0, 0.02, 5.7);
+      this.camera.lookAt(0, -0.12, 0);
       return;
     }
 
@@ -742,22 +662,24 @@ export class ThreeAvatar {
 
   _applyEyes(blink, speaking, level) {
     if (this.usingFallback) {
-      // 눈꺼풀이 위에서 내려옵니다 (blink 0 → 숨음, 1 → 눈을 덮음)
+      /* 눈꺼풀은 눈알과 같은 중심을 **회전**합니다(평행이동이 아닙니다).
+         0 = 뜬 상태, 1 = 감은 상태. */
       this._fbLids?.forEach((lid) => {
-        lid.mesh.position.y = lid.restY + (lid.closedY - lid.restY) * blink;
+        lid.upper.rotation.x = lid.upOpen + (lid.upShut - lid.upOpen) * blink;
+        lid.lower.rotation.x = lid.loOpen + (lid.loShut - lid.loOpen) * blink;
       });
       // 눈동자 이동
       this._fbEyes?.forEach((eye) => {
-        eye.rotation.y = this.gaze.x * 0.35;
-        eye.rotation.x = -this.gaze.y * 0.28;
+        eye.rotation.y = this.gaze.x * 0.30;
+        eye.rotation.x = -this.gaze.y * 0.24;
       });
-      // 눈썹: 말할 때 강세에 따라 살짝, 생각할 때는 확실히 올라갑니다
+      /* 눈썹은 **위아래로만** 움직입니다.
+         눈썹 덩어리들이 머리 원점 기준 절대좌표에 놓여 있어서, 그룹을
+         회전시키면 얼굴 반대편까지 휘둘려 날아갑니다. */
       this._fbBrows?.forEach((brow) => {
-        brow.mesh.position.y = brow.restY
-          + (speaking ? level * 0.03 : 0)
-          + (this.state === 'thinking' ? 0.05 : 0);
-        brow.mesh.rotation.z = brow.sx * 0.07
-          + (this.state === 'thinking' ? brow.sx * 0.09 : 0);
+        brow.group.position.y =
+          (speaking ? level * 0.026 : 0) +
+          (this.state === 'thinking' ? 0.045 : 0);
       });
       return;
     }
@@ -790,14 +712,39 @@ export class ThreeAvatar {
   }
 
   _animateFallback(t, now, level, width, speaking) {
-    if (!this._fbMouth) return;
+    const face = this._fb;
+    if (!face) return;
+
+    let jaw, wide, round, smile;
     if (speaking && level > 0.02) {
-      const openY = 0.12 + level * 0.85;
-      const wideX = 0.85 + width * 0.5;
-      this._fbMouth.scale.set(wideX, openY, 0.5);
+      jaw = clamp(level * 1.15, 0, 1);
+      const w = clamp(width, 0, 1);
+      wide = w * jaw * 0.90;            // 이·에 계열
+      round = (1 - w) * jaw * 0.85;     // 오·우 계열
+      smile = 0.22 + level * 0.12;
     } else {
-      this._fbMouth.scale.set(1.0, 0.12 + Math.sin(t * 0.9) * 0.01, 0.5);
+      // 쉴 때도 아주 미세하게 움직여야 '정지 화면'으로 안 보입니다
+      jaw = 0.015 + Math.sin(t * 0.9) * 0.010;
+      wide = 0;
+      round = 0;
+      // 기본 표정은 **옅은 미소**입니다. 무표정이면 아이들이 무서워합니다.
+      smile = this.state === 'listening' ? 0.44 : 0.30;
     }
+
+    this._fbJaw = ema(this._fbJaw ?? 0, jaw, speaking ? 0.5 : 0.12);
+    this._fbWide = ema(this._fbWide ?? 0, wide, 0.25);
+    this._fbRound = ema(this._fbRound ?? 0, round, 0.25);
+    this._fbSmile = ema(this._fbSmile ?? 0.30, smile, 0.06);
+
+    /* ⚠️ setMorph 를 써야 합니다. 피부와 입술은 **다른 메시**라서,
+          한쪽만 바꾸면 턱은 벌어지는데 입술은 다문 채로 남습니다. */
+    face.setMorph(MORPH.JAW, this._fbJaw);
+    face.setMorph(MORPH.WIDE, this._fbWide);
+    face.setMorph(MORPH.ROUND, this._fbRound);
+    face.setMorph(MORPH.SMILE, this._fbSmile);
+
+    // 혀는 턱과 함께 내려갑니다
+    face.jawGroup.rotation.x = JAW_ANGLE * this._fbJaw;
   }
 
   /* ───────────────────────────────────────────────────────────────────────
