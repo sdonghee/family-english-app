@@ -1,3 +1,4 @@
+
 /**
  * web_app/app.js
  * ----------------------------------------------------------------------------
@@ -380,6 +381,12 @@ async function startCallInner(profile) {
         if (app.player?.speaking && !app.settings.halfDuplex) beginBarge();
       } else {
         if (app.live?.sendActivityEnd()) app.diag.activityEnd++;
+        /* 사람이 말을 마쳤습니다. 붙들고 있던 선생님 음성이 있으면 지금 내보냅니다.
+           여기서 안 풀면 다음 조각이 도착할 때까지 잠자코 있게 되고,
+           그게 마지막 조각이었다면 **영영 재생되지 않습니다.** */
+        if (app.deferredTeacherAudio?.length) {
+          flushDeferredTeacherAudio('사람이 말을 마침');
+        }
       }
       updateDiagnostics({ force: true });
     },
@@ -672,7 +679,48 @@ async function resumeLive() {
   }
 }
  
-/** 선생님 음성 조각 도착 */
+/**
+ * 사람이 아직 말하는 중일 때 선생님 음성을 붙들어 두는 시간의 상한.
+ *
+ * ⚠️ 무한정 붙들면 안 됩니다. 마이크가 어떤 이유로 계속 열려 있으면
+ *    선생님이 영영 말을 못 합니다. 그건 지금 증상보다 더 나쁩니다.
+ */
+const MAX_DEFER_MS = 4000;
+ 
+/** 붙들고 있던 선생님 음성을 순서대로 내보냅니다. */
+function flushDeferredTeacherAudio(reason) {
+  const queued = app.deferredTeacherAudio || [];
+  app.deferredTeacherAudio = [];
+  app.deferStartedAt = 0;
+  if (!queued.length) return;
+  console.info(`[app] 붙들고 있던 선생님 음성 ${queued.length}조각 재생 (${reason})`);
+  for (const pcm of queued) {
+    app.avatar?.pushAudio(pcm);
+    app.player?.push(pcm);
+  }
+}
+ 
+/**
+ * 선생님 음성 조각 도착
+ *
+ * ⚠️ 2026-08-19 — "내가 말한 게 대화창에 안 뜬다"
+ *
+ * 안전 모드(halfDuplex)에서는 선생님이 말하는 동안 마이크를 **완전히 닫습니다**
+ * (mic.js `_muted()`). 에코를 막는 확실한 방법이지만 대가가 있었습니다.
+ *
+ * 실제 코드를 돌려 잰 값입니다 (40단어 · 문장 중간에 3초 머뭇 2번):
+ *      사람이 낸 말소리         12.8초
+ *      마이크가 닫혀 사라진 것   2.2초   ← 어디에도 안 남고 폐기
+ *      쪼개진 턴                 3개
+ *
+ * 문장이 조각나면 첫 조각의 대답이 재생되고, 그 재생 때문에 마이크가 닫히고,
+ * 그동안 이어서 말한 내용이 통째로 사라집니다. 그래서 화면에는 말한 것의
+ * 일부만 뜨거나 아예 안 뜹니다.
+ *
+ * 해법: **사람이 말하는 중이면 재생하지 않고 들고 있습니다.** 말이 끝나면
+ * 그때 재생합니다. 마이크가 닫히지 않으니 말이 사라지지 않습니다.
+ * 사람끼리 대화할 때도 상대가 말을 마칠 때까지 기다립니다.
+ */
 function handleTeacherAudio(pcm16) {
   // 요금 계산용: 받은 오디오 길이 (버리더라도 서버는 이미 만들었으므로 집계합니다)
   app.usage.addAudioOut(app.profile.id, (pcm16.length / AUDIO.OUTPUT_SAMPLE_RATE) * 1000);
@@ -682,6 +730,22 @@ function handleTeacherAudio(pcm16) {
   // (재생하면 끼어들었는데도 선생님이 계속 말하고, duck 이 다시 걸립니다)
   if (app.bargeGuardUntil && Date.now() < app.bargeGuardUntil) return;
   app.bargeGuardUntil = 0;
+ 
+  /* 사람이 아직 말하는 중이면 붙들어 둡니다.
+     안전 모드일 때만입니다 — 끼어들기 모드는 마이크를 닫지 않으므로
+     말이 사라질 일이 없고, 붙들면 오히려 대화가 굼떠집니다. */
+  if (app.settings.halfDuplex && app.mic?.isUserSpeaking?.()) {
+    if (!app.deferStartedAt) app.deferStartedAt = Date.now();
+ 
+    if (Date.now() - app.deferStartedAt < MAX_DEFER_MS) {
+      (app.deferredTeacherAudio ||= []).push(pcm16);
+      return;
+    }
+    flushDeferredTeacherAudio('4초 초과 — 더 기다리지 않음');
+  }
+ 
+  // 붙들어 둔 게 있으면 순서가 어긋나지 않게 그것부터 내보냅니다.
+  if (app.deferredTeacherAudio?.length) flushDeferredTeacherAudio('사람 말이 끝남');
  
   // 영상 아바타 모드면 Simli가 소리까지 내주고, 사진 모드면 우리가 재생합니다.
   // player는 어느 쪽이든 타이밍/립싱크 추적용으로 계속 돌립니다.
@@ -1118,7 +1182,7 @@ function handleLiveState(state, info) {
         app.diag.resumed = !!app.live?.resumeHandle;
       }
       UI.setAvatarState('listening');
-
+ 
       if (info?.message) {
         /* ⭐ 반드시 보이게 합니다.
              여기서 info.message 를 삼키면, 선생님 목소리가 기본 목소리로
@@ -1136,7 +1200,7 @@ function handleLiveState(state, info) {
             : '편하게 말해 보세요. 선생님 말 중간에 끼어들어도 괜찮아요.'
         );
       }
-
+ 
       updateDiagnostics({ force: true });
       UI.setMicUi({ active: true, icon: '🎙️', label: '대화 중' });
       break;
@@ -1697,4 +1761,5 @@ if (document.readyState === 'loading') {
 } else {
   boot();
 }
+ 
  
