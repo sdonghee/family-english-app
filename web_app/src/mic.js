@@ -1,3 +1,4 @@
+
 /**
  * web_app/src/mic.js
  * ----------------------------------------------------------------------------
@@ -19,10 +20,10 @@
  *                          └────(에너지↑)─────────┘
  * ----------------------------------------------------------------------------
  */
-
+ 
 import { AUDIO, COST } from './config.js';
 import { SilenceGate, GateState } from './gate.js';
-
+ 
 /**
  * "진짜 말"로 인정하는 최소 발화 시간.
  *
@@ -50,10 +51,10 @@ import { SilenceGate, GateState } from './gate.js';
  *    실제 발화가 사실상 없습니다.
  */
 const MIN_UTTERANCE_MS = 160;
-
+ 
 /** 확정을 기다리며 들고 있을 수 있는 최대 오디오 (이만큼 지나면 소음으로 판단) */
 const MAX_HOLD_MS = 1200;
-
+ 
 /**
  * 확정 시간을 셀 때, 그 소리가 **자기 자신의 최고음 대비** 얼마나 유지되는지.
  *
@@ -67,14 +68,14 @@ const MAX_HOLD_MS = 1200;
  * 0.15 ≈ −16dB.
  */
 const SUSTAIN_RATIO = 0.15;
-
+ 
 /**
  * 선생님이 말하는 동안 발화 문턱을 몇 배로 올릴지.
  * 스피커에서 새어 들어오는 소리는 대개 직접 말하는 소리보다 훨씬 작습니다.
  */
 const DUCK_FACTOR = 3.5;
 import { float32ToPcm16, int16ToBytes, bytesToBase64, rms, resamplePcm16 } from './pcm.js';
-
+ 
 /** AudioWorklet 프로세서 코드. Blob URL로 넣어서 파일 의존성을 없앱니다. */
 const WORKLET_SRC = `
 class FrameCollector extends AudioWorkletProcessor {
@@ -101,7 +102,7 @@ class FrameCollector extends AudioWorkletProcessor {
 }
 registerProcessor('frame-collector', FrameCollector);
 `;
-
+ 
 export class MicStream {
   /**
    * @param {object} opts
@@ -120,12 +121,12 @@ export class MicStream {
      * (실제 앱에서는 항상 Date.now 입니다)
      */
     this.now = opts.now || (() => Date.now());
-
+ 
     this.audioContext = null;
     this.mediaStream = null;
     this.workletNode = null;
     this.sourceNode = null;
-
+ 
     this.running = false;
     /** 반이중(안전) 모드에서 선생님이 말할 때 true → 아예 전송하지 않음 */
     this.suppressed = false;
@@ -139,10 +140,10 @@ export class MicStream {
     this.pageHidden = false;
     /** 선생님이 지금 말하는 중인지 (스피커 누출을 관찰할 구간) */
     this.teacherSpeaking = false;
-
+ 
     this.prerollFrames = [];
     this.lastSpeechAt = 0;
-
+ 
     /**
      * 발화 확정 대기 상태.
      * 게이트는 열렸지만 아직 "진짜 말"인지 확인되지 않은 구간입니다.
@@ -158,7 +159,7 @@ export class MicStream {
     this.serverOpen = false;
     /** 지금 보내고 있는 발화의 최대 음량 (진단용) */
     this.utterancePeak = 0;
-
+ 
     /**
      * duck 을 푸는 데 두는 지연.
      * 실사 영상(Simli) 모드에서는 소리가 우리 재생기가 아니라 Simli의
@@ -168,7 +169,7 @@ export class MicStream {
      */
     this.duckReleaseMs = 150;
     this._duckTimer = null;
-
+ 
     /**
      * 침묵 게이트 (순수 로직 — gate.js).
      * 브라우저 API에 의존하지 않으므로 Node에서 그대로 테스트합니다.
@@ -182,18 +183,18 @@ export class MicStream {
       noiseStarvedMs: COST.NOISE_STARVED_MS,
       enabled: COST.SILENCE_GATE_ENABLED,
     });
-
+ 
     this.frameMs = (AUDIO.FRAME_SAMPLES / AUDIO.INPUT_SAMPLE_RATE) * 1000; // 80ms
     this.maxPrerollFrames = Math.max(1, Math.ceil(COST.PREROLL_MS / this.frameMs));
-
+ 
     /** 브라우저가 16kHz AudioContext를 못 만들면 여기서 리샘플 */
     this.needsResample = false;
     this.actualSampleRate = AUDIO.INPUT_SAMPLE_RATE;
   }
-
+ 
   async start() {
     if (this.running) return;
-
+ 
     this.mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         // 스피커로 들을 때 에코를 브라우저가 먼저 걸러줍니다.
@@ -204,7 +205,7 @@ export class MicStream {
       },
       video: false,
     });
-
+ 
     // 16kHz로 직접 열면 리샘플링이 아예 필요 없습니다.
     try {
       this.audioContext = new AudioContext({ sampleRate: AUDIO.INPUT_SAMPLE_RATE });
@@ -214,7 +215,7 @@ export class MicStream {
     if (this.audioContext.state === 'suspended') {
       await this.audioContext.resume();
     }
-
+ 
     this.actualSampleRate = this.audioContext.sampleRate;
     this.needsResample = this.actualSampleRate !== AUDIO.INPUT_SAMPLE_RATE;
     if (this.needsResample) {
@@ -223,27 +224,27 @@ export class MicStream {
         `(실제 ${this.actualSampleRate}Hz). JS에서 리샘플합니다.`
       );
     }
-
+ 
     // 실제 컨텍스트 레이트에 맞춰 프레임 크기를 조정 (항상 80ms 단위 유지)
     const frameSize = Math.round((this.actualSampleRate * this.frameMs) / 1000);
-
+ 
     const blobUrl = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' }));
     try {
       await this.audioContext.audioWorklet.addModule(blobUrl);
     } finally {
       URL.revokeObjectURL(blobUrl);
     }
-
+ 
     this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
     this.workletNode = new AudioWorkletNode(this.audioContext, 'frame-collector', {
       numberOfInputs: 1,
       numberOfOutputs: 0,
       processorOptions: { frameSize },
     });
-
+ 
     this.workletNode.port.onmessage = (event) => this._handleFrame(event.data);
     this.sourceNode.connect(this.workletNode);
-
+ 
     this.running = true;
     this.teacherSpeaking = false;
     this.gate.reset();
@@ -252,7 +253,7 @@ export class MicStream {
     this.serverOpen = false;
     this.lastSpeechAt = this.now();
   }
-
+ 
   /**
    * 다른 앱/탭에 갔다가 돌아왔을 때 AudioContext를 되살립니다.
    * iOS는 백그라운드로 가면 AudioContext를 suspended로 바꾸고,
@@ -267,7 +268,7 @@ export class MicStream {
       }
     }
   }
-
+ 
   /**
    * 선생님이 말하는 동안 마이크를 어떻게 다룰지.
    *
@@ -287,33 +288,49 @@ export class MicStream {
       this._setDuck(teacherSpeaking ? DUCK_FACTOR : 1);
       return;
     }
-
+ 
     // ── mute 모드 (안전 모드) ────────────────────────────────────────
     this._cancelDuckTimer();
     this.gate.setDuck(1);
     if (this.suppressed === teacherSpeaking) return;
     this.suppressed = teacherSpeaking;
-
+ 
     if (teacherSpeaking) this._closeHard();
   }
-
+ 
   /** 탭이 가려짐/돌아옴. 선생님 발화 억제와 **별개**로 관리합니다. */
   setPageHidden(hidden) {
     if (this.pageHidden === !!hidden) return;
     this.pageHidden = !!hidden;
     if (this.pageHidden) this._closeHard();
   }
-
+ 
   /** 예전 이름 (mute 모드로 동작) */
   setSuppressed(suppressed) {
     this.setTeacherSpeaking(suppressed, 'mute');
   }
-
+ 
   /** 지금 마이크가 막혀 있는지 (선생님 발화 억제 또는 탭 숨김) */
   _muted() {
     return this.suppressed || this.pageHidden;
   }
-
+ 
+  /**
+   * 지금 사람이 말하는 중인가?
+   *
+   * app.js 가 "선생님 대답을 지금 재생해도 되는지" 판단할 때 씁니다.
+   * 사람이 말하는 중에 재생하면 마이크가 닫히고(안전 모드), 그 사이에
+   * 이어서 말한 내용이 통째로 사라집니다. @see app.js handleTeacherAudio
+   *
+   * serverOpen  = 말이 확정되어 서버로 흘러가는 중
+   * pendingOpen = 소리는 들어왔고 "진짜 말인지" 확인하는 중
+   *               (이때도 사람은 이미 말하고 있습니다. 여기를 빼면
+   *                문장 첫머리에서 대답이 끼어들어 앞부분이 잘립니다)
+   */
+  isUserSpeaking() {
+    return !!(this.serverOpen || this.pendingOpen);
+  }
+ 
   /** 열려 있던 걸 즉시 닫고, 필요하면 서버에 end 를 알립니다. */
   _closeHard() {
     const wasOpen = this.gate.close();
@@ -326,7 +343,7 @@ export class MicStream {
     this.prerollFrames = [];
     this.onLevel(0, false);
   }
-
+ 
   _discardHeld() {
     this.pendingOpen = false;
     this.heldFrames = [];
@@ -334,7 +351,7 @@ export class MicStream {
     this.heldMs = 0;
     this.heldPeak = 0;
   }
-
+ 
   /** duck 을 걸거나(즉시) 풉니다(지연). @see duckReleaseMs */
   _setDuck(factor) {
     this._cancelDuckTimer();
@@ -351,11 +368,11 @@ export class MicStream {
     }
     this.gate.setDuck(1);
   }
-
+ 
   _cancelDuckTimer() {
     if (this._duckTimer) { clearTimeout(this._duckTimer); this._duckTimer = null; }
   }
-
+ 
   /**
    * duck 을 푸는 지연 시간. 실사 영상 모드는 스피커 소리가 우리 재생기보다
    * 늦게 끝나므로 길게 잡습니다.
@@ -363,7 +380,7 @@ export class MicStream {
   setDuckReleaseMs(ms) {
     this.duckReleaseMs = Math.max(0, Math.min(2000, Number(ms) || 0));
   }
-
+ 
   /**
    * "끼어들기" — 사용자가 지금 말하겠다고 명시적으로 누른 경우.
    * 소리 크기와 무관하게 발화 구간을 열고, 확정 대기 없이 바로 흘려보냅니다.
@@ -374,10 +391,10 @@ export class MicStream {
     this.suppressed = false;
     // 탭이 가려진 상태에서 누를 수는 없지만, 눌렸다면 열어주는 게 맞습니다
     this.pageHidden = false;
-
+ 
     const opened = this.gate.forceOpen(this.now());
     if (!opened && this.serverOpen) return false; // 이미 열려 있고 서버도 앎
-
+ 
     // 들고 있던 것 + 선행 버퍼를 확정 없이 즉시 내보냅니다
     this.pendingOpen = false;
     const frames = [...this.prerollFrames, ...this.heldFrames];
@@ -385,41 +402,41 @@ export class MicStream {
     this.prerollFrames = [];
     this.confirmedMs = MIN_UTTERANCE_MS;
     this.heldMs = 0;
-
+ 
     this.serverOpen = true;
     this.onActivity('start');
     for (const frame of frames) this._send(frame);
     this.lastSpeechAt = this.now();
     return true;
   }
-
+ 
   /** 마지막으로 사람이 말한 시각 이후 흐른 시간 (유휴 자동 종료 판단용) */
   msSinceLastSpeech() {
     return this.now() - this.lastSpeechAt;
   }
-
+ 
   _handleFrame(float32Frame) {
     if (!this.running) return;
-
+ 
     const level = rms(float32Frame);
-
+ 
     if (this._muted()) {
       this.onLevel(0, false);
       return;
     }
-
+ 
     // 선생님이 말하는 동안 마이크에 들어오는 소리 = 스피커 누출.
     // **진단 숫자로만** 씁니다 (문턱 계산에는 절대 쓰지 않습니다).
     // 내보내기 파일에 "이어폰을 쓰세요"라고 알려줄 근거가 됩니다.
     if (this.teacherSpeaking && this.gate.state === GateState.IDLE) {
       this.gate.observeEcho(level);
     }
-
+ 
     const now = this.now();
     const decision = this.gate.process(level, now);
-
+ 
     if (decision.speech) this.lastSpeechAt = now;
-
+ 
     /* ── 1. 게이트가 막 열렸다 → 아직 서버에는 알리지 않습니다 ────────
        진짜 말인지 MIN_UTTERANCE_MS 동안 확인부터 합니다.
        그 사이 오디오는 손에 들고만 있습니다 (로컬이라 요금 0원).        */
@@ -431,7 +448,7 @@ export class MicStream {
       this.heldFrames = decision.flushPreroll ? this.prerollFrames : [];
       this.prerollFrames = [];
     }
-
+ 
     if (this.pendingOpen) {
       this.heldFrames.push(float32Frame);
       this.heldMs += this.frameMs;
@@ -441,7 +458,7 @@ export class MicStream {
       if (decision.speech && level >= this.heldPeak * SUSTAIN_RATIO) {
         this.confirmedMs += this.frameMs;
       }
-
+ 
       if (this.confirmedMs >= MIN_UTTERANCE_MS) {
         /* ⭐ 확정. 순서가 중요합니다 — "말 시작"을 **오디오보다 먼저**.
               반대로 하면 첫 음절이 발화 구간 밖으로 나가 버려집니다.     */
@@ -457,7 +474,7 @@ export class MicStream {
         this.onLevel(level, true);
         return;
       }
-
+ 
       if (decision.activity === 'end' || this.heldMs >= MAX_HOLD_MS) {
         // 말이 아니었습니다 (문 닫는 소리, 의자 끄는 소리, 스피커 에코).
         // 서버는 이런 게 있었는지조차 모릅니다 → 선생님이 대답하지 않습니다.
@@ -470,12 +487,12 @@ export class MicStream {
         this.onLevel(level, false);
         return;
       }
-
+ 
       // 아직 판단 중 — 화면에는 "듣고 있어요"로 보여줍니다 (반응이 없으면 불안합니다)
       this.onLevel(level, true);
       return;
     }
-
+ 
     /* ── 2. 이미 확정된 발화가 진행 중 ──────────────────────────────── */
     if (this.serverOpen) this.utterancePeak = Math.max(this.utterancePeak, level);
     if (decision.send && this.serverOpen) {
@@ -487,21 +504,21 @@ export class MicStream {
         this.prerollFrames.shift();
       }
     }
-
+ 
     // 말의 끝은 마지막 오디오까지 보낸 뒤에 알립니다
     if (decision.activity === 'end' && this.serverOpen) {
       this.serverOpen = false;
       this.onActivity('end');
     }
-
+ 
     this.onLevel(level, decision.state !== GateState.IDLE);
   }
-
+ 
   /** 말이 끝났다고 볼 때까지 기다리는 시간 (학습자 수준에 맞춰 조정) */
   setEndOfSpeechMs(ms) {
     this.gate.setEndOfSpeechMs(ms);
   }
-
+ 
   /**
    * 서버가 아는 "발화 구간"이 열려 있는지.
    *
@@ -511,12 +528,12 @@ export class MicStream {
   isSpeaking() {
     return this.serverOpen;
   }
-
+ 
   /** 아직 확정되지 않은 채 들고 있는 오디오가 있는지 (재연결 판단용) */
   hasHeldAudio() {
     return this.pendingOpen && this.heldFrames.length > 0;
   }
-
+ 
   /**
    * 지금 열려 있는 발화 구간을 정상적으로 닫습니다.
    * 텍스트로 말을 걸 때처럼, 음성 발화를 먼저 마무리해야 하는 경우에 씁니다.
@@ -534,7 +551,7 @@ export class MicStream {
     this.serverOpen = false;
     return false;
   }
-
+ 
   _send(float32Frame) {
     let pcm16 = float32ToPcm16(float32Frame);
     if (this.needsResample) {
@@ -544,7 +561,7 @@ export class MicStream {
     this.onAudioFrame(base64);
     this.onStreamedMs(this.frameMs);
   }
-
+ 
   async stop() {
     this.running = false;
     this._cancelDuckTimer();
@@ -552,7 +569,7 @@ export class MicStream {
     this.prerollFrames = [];
     this._discardHeld();
     this.serverOpen = false;
-
+ 
     try { this.workletNode?.port?.close(); } catch {}
     try { this.workletNode?.disconnect(); } catch {}
     try { this.sourceNode?.disconnect(); } catch {}
@@ -560,10 +577,11 @@ export class MicStream {
     if (this.audioContext && this.audioContext.state !== 'closed') {
       try { await this.audioContext.close(); } catch {}
     }
-
+ 
     this.workletNode = null;
     this.sourceNode = null;
     this.mediaStream = null;
     this.audioContext = null;
   }
 }
+ 
