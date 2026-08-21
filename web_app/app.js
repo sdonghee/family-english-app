@@ -1,1457 +1,1765 @@
-// Max AI Style - Clean 6인 가족 프로필 (하율/예율 만9세, 성율 만6세, 지율 만4세)
-const DEFAULT_PROFILES = [
-  { id: 'p_dad', name: '아빠', age: 42, avatarIcon: '👨‍💼', themeColor: '#2196F3' },
-  { id: 'p_mom', name: '엄마', age: 40, avatarIcon: '👩‍🏫', themeColor: '#E91E63' },
-  { id: 'p_child1', name: '첫째 하율 (쌍둥이)', age: 9, avatarIcon: '👦', themeColor: '#9C27B0' },
-  { id: 'p_child2', name: '둘째 예율 (쌍둥이)', age: 9, avatarIcon: '👧', themeColor: '#4CAF50' },
-  { id: 'p_child3', name: '셋째 성율', age: 6, avatarIcon: '🧒', themeColor: '#FF9800' },
-  { id: 'p_youngest', name: '막내 지율', age: 4, avatarIcon: '👶', themeColor: '#00BCD4' }
-];
 
-const ROLEPLAY_SCENARIOS = [
-  { id: 'airport', title: '✈️ 공항 출국 심사대', desc: '공항 심사관과의 실전 입국/출국 대화' },
-  { id: 'cafe', title: '☕ 해외 커스텀 카페 주문', desc: '스타벅스/해외 카페 주문 및 커스텀 요청' },
-  { id: 'hotel', title: '🏨 호텔 체크인 & 룸 서비스', desc: '호텔 체크인 및 불편사항 요청하기' },
-  { id: 'business', title: '💼 글로벌 비즈니스 미팅', desc: '해외 파트너사와의 업무 협상 및 제안' },
-  { id: 'gaming', title: '🎮 외국 친구와 게임 수다', desc: '하율/예율이 외국 친구와의 로블록스/게임 수다' },
-  { id: 'dino', title: '🦖 공룡 탐험가 역할극', desc: '성율이 맞춤! 티라노사우루스와 정글 탐험' },
-  { id: 'zoo', title: '🐘 동물원 탐험 퀴즈', desc: '지율이 맞춤! 동물 소리 퀴즈와 귀여운 수다' }
-];
-
-let profiles = [];
-let activeProfile = null;
-let chatHistories = {};
-let userFlashcards = [];
-let userGeminiApiKey = '';
-let isListening = false;
-let recognition = null;
-let naturalVoices = [];
-let speechPauseTimer = null;
-let accumulatedTranscript = '';
-let conversationTurnCount = 0;
-let isSpeakingAnim = false;
-let recentRepliesBuffer = [];
-let lastAiReplyText = '';  // 🔇 에코 감지용: AI가 마지막으로 한 말 저장
-let isTtsSpeaking = false;  // 🔇 TTS 발화 중 여부 (speechSynthesis.speaking보다 더 정확)
-
-let userErrorPatterns = { tense: 0, article: 0, preposition: 0, wordOrder: 0, agreement: 0, other: 0 };
-let uniqueWordsUsed = new Set();
-let sentenceLengths = [];
-
-let currentDailyMission = {
-  expression: "Could you tell me more?",
-  completed: false
-};
-
-const DAILY_MISSIONS = [
-  "Could you tell me more?",
-  "How is your day going?",
-  "I love playing games!",
-  "Make sure to get rest!",
-  "What is your favorite food?",
-  "Tell me a fun story!"
-];
-
-const profileSection = document.getElementById('profile-section');
-const chatSection = document.getElementById('chat-section');
-const profileGrid = document.getElementById('profile-grid');
-const backToProfilesBtn = document.getElementById('back-to-profiles-btn');
-const roleplayBtn = document.getElementById('roleplay-btn');
-const activeProfileHeader = document.getElementById('active-profile-header');
-
-const aiHumanStage = document.getElementById('ai-human-stage');
-const lingoStatusTag = document.getElementById('lingo-status-tag');
-const speechEnText = document.getElementById('speech-en-text');
-const speechKrSub = document.getElementById('speech-kr-sub');
-const hintToggleBtn = document.getElementById('hint-toggle-btn');
-const speakingIndicator = document.getElementById('speaking-indicator');
-
-const chatMessages = document.getElementById('chat-messages');
-const quickChipsContainer = document.getElementById('quick-chips-container');
-const chatInput = document.getElementById('chat-input');
-const sendBtn = document.getElementById('send-btn');
-const giantMicBtn = document.getElementById('giant-mic-btn');
-const micIcon = document.getElementById('mic-icon');
-const micLabel = document.getElementById('mic-label');
-const settingsBtn = document.getElementById('settings-btn');
-const deckBtn = document.getElementById('deck-btn');
-const reportBtn = document.getElementById('report-btn');
-
-const settingsModal = document.getElementById('settings-modal');
-const geminiKeyInput = document.getElementById('gemini-key-input');
-const saveSettingsBtn = document.getElementById('save-settings-btn');
-const closeSettingsBtn = document.getElementById('close-settings-btn');
-
-const roleplayModal = document.getElementById('roleplay-modal');
-const roleplayGrid = document.getElementById('roleplay-grid');
-const closeRoleplayBtn = document.getElementById('close-roleplay-btn');
-
-const deckModal = document.getElementById('deck-modal');
-const deckCardContainer = document.getElementById('deck-card-container');
-const closeDeckBtn = document.getElementById('close-deck-btn');
-
-const reportModal = document.getElementById('report-modal');
-const closeReportBtn = document.getElementById('close-report-btn');
-const reportTotalTurns = document.getElementById('report-total-turns');
-const reportNativeCount = document.getElementById('report-native-count');
-const reportMissionFill = document.getElementById('report-mission-fill');
-const reportMissionText = document.getElementById('report-mission-text');
-const reportFeedbackSummary = document.getElementById('report-feedback-summary');
-const missionExpressionText = document.getElementById('mission-expression-text');
-const missionStatusBadge = document.getElementById('mission-status-badge');
-
-function initApp() {
-  loadStoredData();
-  renderProfiles();
-  renderRoleplayModal();
-  setupSpeechRecognition();
-  loadNaturalVoices();
-  setupEventListeners();
-  initDailyMission();
-  // Avatar animations handled by CSS
-}
-
-function setAvatarMood(mood) {
-  const wrapper = document.getElementById('video-avatar-wrapper');
-  if (!wrapper) return;
-  wrapper.classList.remove('happy', 'curious', 'focused', 'warm');
-  if (['happy', 'curious', 'focused', 'warm'].includes(mood)) {
-    wrapper.classList.add(mood);
-  }
-}
-
-function initDailyMission() {
-  const charCode = activeProfile && activeProfile.id ? activeProfile.id.charCodeAt(0) : 65;
-  const idx = Math.abs(charCode + new Date().getDate()) % DAILY_MISSIONS.length;
-  currentDailyMission.expression = DAILY_MISSIONS[idx];
-  currentDailyMission.completed = false;
-
-  if (missionExpressionText) {
-    missionExpressionText.innerText = `"${currentDailyMission.expression}"`;
-  }
-  if (missionStatusBadge) {
-    missionStatusBadge.innerText = "진행 중 🎯";
-    missionStatusBadge.classList.remove('completed');
-  }
-}
-
-function checkMissionCompletion(userText, aiReply) {
-  if (!currentDailyMission || currentDailyMission.completed) return;
-  
-  const textToCheck = ((userText || "") + " " + (aiReply || "")).toLowerCase();
-  const targetWords = currentDailyMission.expression.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(' ').filter(w => w.length > 2);
-  const matched = targetWords.filter(w => textToCheck.includes(w));
-  
-  if (matched.length >= Math.min(2, targetWords.length)) {
-    currentDailyMission.completed = true;
-    if (missionStatusBadge) {
-      missionStatusBadge.innerText = "달성 완료! 🎉";
-      missionStatusBadge.classList.add('completed');
-    }
-  }
-}
-
-function openReportModal() {
-  if (!reportModal) return;
-
-  const userMsgs = activeProfile && chatHistories[activeProfile.id] 
-    ? chatHistories[activeProfile.id].filter(m => m.sender === 'user').length 
-    : 0;
-  const turns = conversationTurnCount > 0 ? conversationTurnCount : userMsgs;
-  const nativeCount = userFlashcards ? userFlashcards.length : 0;
-  const isMissionDone = currentDailyMission.completed;
-
-  if (reportTotalTurns) reportTotalTurns.innerText = turns;
-  if (reportNativeCount) reportNativeCount.innerText = nativeCount;
-
-  if (reportMissionFill && reportMissionText) {
-    if (isMissionDone) {
-      reportMissionFill.style.width = "100%";
-      reportMissionText.innerText = `미션 달성 완료! 🎉 ("${currentDailyMission.expression}")`;
-    } else {
-      reportMissionFill.style.width = "40%";
-      reportMissionText.innerText = `미션 진행 중 🎯 ("${currentDailyMission.expression}")`;
-    }
-  }
-
-  // Analytics Calculation
-  let mostCommonError = "없음";
-  let maxErrorCount = 0;
-  for (const [errorType, count] of Object.entries(userErrorPatterns)) {
-    if (count > maxErrorCount) {
-      maxErrorCount = count;
-      mostCommonError = errorType;
-    }
-  }
-  
-  const vocabDiversity = uniqueWordsUsed.size;
-  const avgSentenceLength = sentenceLengths.length > 0 ? (sentenceLengths.reduce((a, b) => a + b, 0) / sentenceLengths.length).toFixed(1) : 0;
-  
-  const errorMapKr = { tense: "시제 오류", article: "관사 오류", preposition: "전치사 오류", wordOrder: "어순 오류", agreement: "수일치 오류", other: "기타 오류", "없음": "없음" };
-  const krErrorName = errorMapKr[mostCommonError] || mostCommonError;
-
-  if (reportFeedbackSummary) {
-    const pName = activeProfile ? activeProfile.name : '학습자';
-    if (turns === 0) {
-      reportFeedbackSummary.innerText = `안녕하세요 ${pName}님! Chloe 선생님과의 대화를 시작하시면 오늘의 1분 성취 리포트가 자동으로 기록됩니다. 🎙️`;
-    } else {
-      let feedbackHTML = `대단해요, ${pName}님! 총 ${turns}번의 대화 동안 ${nativeCount}개의 원어민 표현을 수집하셨네요! 🌟<br><br>`;
-      feedbackHTML += `<b>📊 오늘의 학습 분석:</b><br>`;
-      feedbackHTML += `- 사용한 다양한 단어 수 (어휘력): <b>${vocabDiversity} 단어</b><br>`;
-      feedbackHTML += `- 평균 문장 길이 (복잡도): <b>${avgSentenceLength} 단어/문장</b><br>`;
-      feedbackHTML += `- 가장 자주 틀린 부분: <b>${krErrorName}</b> (${maxErrorCount}회)<br><br>`;
-      
-      if (userFlashcards && userFlashcards.length > 0) {
-        feedbackHTML += `<b>🗂️ 오늘의 오답 노트 & 추천 표현:</b><br><ul style="margin-top: 5px; margin-bottom: 15px; padding-left: 20px;">`;
-        const recentCards = userFlashcards.slice(0, 3);
-        recentCards.forEach(card => {
-          feedbackHTML += `<li style="margin-bottom: 5px;">❌ <i>${card.original}</i><br>✅ <b>${card.native}</b></li>`;
-        });
-        feedbackHTML += `</ul>`;
-      }
-      
-      feedbackHTML += `<b>💡 맞춤형 피드백:</b><br>`;
-      if (maxErrorCount > 0) {
-        feedbackHTML += `${krErrorName}에 조금 더 신경써서 말해보면 완벽한 원어민에 가까워질 거예요!`;
-      } else {
-        feedbackHTML += `현재 문법이 매우 정확합니다! 더 길고 복잡한 문장에 도전해보세요!`;
-      }
-      reportFeedbackSummary.innerHTML = feedbackHTML;
-    }
-  }
-
-  reportModal.classList.remove('hidden');
-}
-
-function setAvatarState(state) {
-  const wrapper = document.getElementById('video-avatar-wrapper');
-  const badge = document.getElementById('avatar-state-badge');
-  const stateText = badge ? badge.querySelector('.state-text') : null;
-  
-  // 모든 상태 클래스 제거
-  if (wrapper) wrapper.classList.remove('talking', 'listening', 'thinking');
-  if (badge) badge.classList.remove('listening', 'thinking', 'speaking');
-  if (speakingIndicator) speakingIndicator.classList.remove('active');
-  
-  switch(state) {
-    case 'listening':
-      if (wrapper) wrapper.classList.add('listening');
-      if (badge) badge.classList.add('listening');
-      if (stateText) stateText.textContent = '경청 중 🎧';
-      setAvatarMood('curious');
-      break;
-    case 'thinking':
-      if (wrapper) wrapper.classList.add('thinking');
-      if (badge) badge.classList.add('thinking');
-      if (stateText) stateText.textContent = '생각 중 🤔';
-      setAvatarMood('focused');
-      break;
-    case 'speaking':
-      if (wrapper) wrapper.classList.add('talking');
-      if (badge) badge.classList.add('speaking');
-      if (stateText) stateText.textContent = '말하는 중 🗣️';
-      if (speakingIndicator) speakingIndicator.classList.add('active');
-      break;
-    default: // idle
-      if (stateText) stateText.textContent = '대기 중';
-      break;
-  }
-}
-
-function startTalkingAvatarLoop() {
-  isSpeakingAnim = true;
-  setAvatarState('speaking');
-}
-
-function stopTalkingAvatarLoop() {
-  isSpeakingAnim = false;
-  setAvatarState('idle');
-}
-
-let naturalEnVoice = null;
-let naturalKrVoice = null;
-
-function loadNaturalVoices() {
-  if ('speechSynthesis' in window) {
-    const updateVoices = () => {
-      const allVoices = window.speechSynthesis.getVoices();
-      const enVoices = allVoices.filter(v => v.lang.startsWith('en'));
-      const krVoices = allVoices.filter(v => v.lang.startsWith('ko'));
-      
-      // 1. 영어 여성 음성 우선순위
-      const enPriority = ['Google US English', 'Google UK English Female', 'Samantha', 'Microsoft Aria', 'Microsoft Jenny', 'Karen'];
-      let foundEn = enVoices.find(v => (v.name.includes('Natural') || v.name.includes('Neural')) && !v.name.includes('Male'));
-      if (!foundEn) {
-        for (const name of enPriority) {
-          foundEn = enVoices.find(v => v.name.includes(name));
-          if (foundEn) break;
-        }
-      }
-      naturalEnVoice = foundEn || enVoices.find(v => !v.name.includes('Male')) || enVoices[0];
-
-      // 2. 한국어 여성 음성 우선순위
-      const krPriority = ['Google 한국어', 'Heami', 'Sun-Hi', 'Microsoft SunHi', 'Microsoft Heami', 'Yuna'];
-      let foundKr = krVoices.find(v => v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural'));
-      if (!foundKr) {
-        for (const name of krPriority) {
-          foundKr = krVoices.find(v => v.name.includes(name));
-          if (foundKr) break;
-        }
-      }
-      naturalKrVoice = foundKr || krVoices[0];
-
-      console.log('🎙️ Selected En Voice:', naturalEnVoice?.name);
-      console.log('🎙️ Selected Kr Voice:', naturalKrVoice?.name);
-    };
-
-    updateVoices();
-    window.speechSynthesis.onvoiceschanged = updateVoices;
-  }
-}
-
-function loadStoredData() {
-  profiles = JSON.parse(JSON.stringify(DEFAULT_PROFILES));
-
-  const savedHistories = localStorage.getItem('lingo_chat_histories_v23');
-  if (savedHistories) chatHistories = JSON.parse(savedHistories);
-
-  const savedFlashcards = localStorage.getItem('lingo_user_flashcards_v23');
-  if (savedFlashcards) userFlashcards = JSON.parse(savedFlashcards);
-
-  userGeminiApiKey = localStorage.getItem('lingo_gemini_api_key') || '';
-  if (geminiKeyInput) geminiKeyInput.value = userGeminiApiKey;
-}
-
-function saveHistories() {
-  localStorage.setItem('lingo_chat_histories_v23', JSON.stringify(chatHistories));
-}
-
-function saveFlashcards() {
-  localStorage.setItem('lingo_user_flashcards_v23', JSON.stringify(userFlashcards));
-}
-
-function renderProfiles() {
-  if (!profileGrid) return;
-  profileGrid.innerHTML = '';
-
-  profiles.forEach(p => {
-    const card = document.createElement('div');
-    card.className = 'profile-card';
-    card.style.borderColor = p.themeColor;
-
-    card.innerHTML = `
-      <div class="profile-avatar-circle" style="background-color: ${p.themeColor}20;">
-        ${p.avatarIcon}
-      </div>
-      <div class="profile-name">${p.name}</div>
-      <div class="profile-sub">${p.age}세 맞춤 대화</div>
-    `;
-
-    card.addEventListener('click', () => selectProfile(p.id));
-    profileGrid.appendChild(card);
-  });
-}
-
-function getProfileNameInfo(profile) {
-  if (!profile || !profile.name) {
-    return { krName: '친구', enName: 'Friend' };
-  }
-
-  const KnownMappings = {
-    'p_dad': { krName: '아빠', enName: 'Dad' },
-    'p_mom': { krName: '엄마', enName: 'Mom' },
-    'p_child1': { krName: '하율', enName: 'Hayul' },
-    'p_child2': { krName: '예율', enName: 'Yeyul' },
-    'p_child3': { krName: '성율', enName: 'Seongyul' },
-    'p_youngest': { krName: '지율', enName: 'Jiyul' }
-  };
-
-  if (profile.id && KnownMappings[profile.id]) {
-    return KnownMappings[profile.id];
-  }
-
-  const rawName = profile.name.trim();
-  let clean = rawName.replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '').trim();
-  clean = clean.replace(/^(첫째|둘째|셋째|넷째|막내)\s+/g, '').trim();
-
-  if (clean === '아빠') return { krName: '아빠', enName: 'Dad' };
-  if (clean === '엄마') return { krName: '엄마', enName: 'Mom' };
-  if (clean === '하율') return { krName: '하율', enName: 'Hayul' };
-  if (clean === '예율') return { krName: '예율', enName: 'Yeyul' };
-  if (clean === '성율') return { krName: '성율', enName: 'Seongyul' };
-  if (clean === '지율') return { krName: '지율', enName: 'Jiyul' };
-
-  const isEnglish = /^[A-Za-z0-9\s]+$/.test(clean);
-  if (isEnglish) {
-    return { krName: clean, enName: clean };
-  }
-
-  return { krName: clean, enName: clean };
-}
-
-function selectProfile(id) {
-  activeProfile = profiles.find(p => p.id === id);
-  if (!activeProfile) return;
-
-  conversationTurnCount = 0;
-  recentRepliesBuffer = [];
-
-  const welcomeContent = getWelcomeMessage(activeProfile);
-  const welcomeTranslation = getWelcomeTranslation(activeProfile);
-
-  if (!chatHistories[id] || chatHistories[id].length === 0) {
-    chatHistories[id] = [
-      {
-        sender: 'ai',
-        content: welcomeContent,
-        translation: welcomeTranslation,
-        timestamp: new Date().toISOString()
-      }
-    ];
-    saveHistories();
-  } else {
-    // 저장된 기존 웰컴 메시지가 있는 경우 표현 보정 및 갱신
-    if (chatHistories[id][0] && chatHistories[id][0].sender === 'ai') {
-      chatHistories[id][0].content = welcomeContent;
-      chatHistories[id][0].translation = welcomeTranslation;
-      saveHistories();
-    }
-  }
-
-  if (activeProfileHeader) activeProfileHeader.innerHTML = `${activeProfile.avatarIcon} <span>${activeProfile.name}</span>`;
-  renderMessages();
-  renderQuickChips();
-  initDailyMission();
-
-  if (profileSection) profileSection.classList.remove('active');
-  if (chatSection) chatSection.classList.add('active');
-
-  const welcomeMsg = chatHistories[id][0];
-  updateVideoOverlaySubtitles(welcomeMsg.content, welcomeMsg.translation);
-  speakText(welcomeMsg.content);
-}
-
-function getWelcomeMessage(profile) {
-  const { enName } = getProfileNameInfo(profile);
-  if (profile.age <= 5) {
-    return `Hi ${enName}! What are you playing with today? ✨`;
-  } else if (profile.age <= 9) {
-    return `Hey ${enName}! What was the best part of your day today? 🎮`;
-  } else {
-    return `Hello ${enName}! I'm Chloe. How is your day going today? ✨`;
-  }
-}
-
-function getWelcomeTranslation(profile) {
-  const { krName } = getProfileNameInfo(profile);
-  if (profile.age <= 5) {
-    return `안녕 ${krName}! 오늘 뭐 하고 놀고 있니? ✨`;
-  } else if (profile.age <= 9) {
-    return `안녕 ${krName}! 오늘 가장 재미있었던 일은 뭐야? 🎮`;
-  } else {
-    return `안녕하세요 ${krName}님! 저는 클로이예요. 오늘 하루 어떠셨나요? ✨`;
-  }
-}
-
-function updateVideoOverlaySubtitles(enText, krText) {
-  if (speechEnText) speechEnText.innerText = `"${enText}"`;
-  if (speechKrSub) speechKrSub.innerText = krText || "";
-}
-
-function renderMessages() {
-  if (!chatMessages) return;
-  chatMessages.innerHTML = '';
-  const messages = chatHistories[activeProfile.id] || [];
-
-  messages.forEach((msg, idx) => {
-    const row = document.createElement('div');
-    row.className = `msg-row ${msg.sender}`;
-
-    const avatar = document.createElement('div');
-    avatar.className = 'msg-avatar';
-    avatar.innerText = msg.sender === 'user' ? activeProfile.avatarIcon : '👩‍🏫';
-
-    const bubble = document.createElement('div');
-    bubble.className = 'msg-bubble';
-
-    let contentHtml = `<div>${msg.content} <button class="tts-btn" onclick="speakText('${msg.content.replace(/'/g, "\\'")}')">🔊</button></div>`;
-
-    if (msg.grammarFixNote) {
-      contentHtml += `
-        <div class="grammar-tip" style="background:#451a03; border-color:#78350f; color:#fde047; margin-top:6px;">
-          <span>🔧 문법/표현 교정:</span> ${msg.grammarFixNote}
-        </div>
-      `;
-    }
-
-    if (msg.pronunciationTip) {
-      contentHtml += `
-        <div class="grammar-tip" style="background:#1e1b4b; border-color:#4338ca; color:#a5b4fc; margin-top:6px;">
-          <span>🎙️ 억양 & 발음 팁:</span> ${msg.pronunciationTip}
-        </div>
-      `;
-    }
-
-    if (msg.nativeUpgrade || msg.advancedUpgrade) {
-      contentHtml += `
-        <div class="upgrade-elevator">
-          <div class="upgrade-title">💎 3단계 문장 엘리베이터 & 실전 따라하기</div>
-          <div class="upgrade-step native">🥈 원어민 표현: "${msg.nativeUpgrade || ''}"</div>
-          <div class="upgrade-step advanced">🥇 C1/C2 고급 표현: "${msg.advancedUpgrade || ''}"</div>
-          ${msg.nativeUpgrade ? `<button class="practice-speak-btn" onclick="fillPracticeSentence('${msg.nativeUpgrade.replace(/'/g, "\\'")}')">📢 원어민 표현 따라 연습하기</button>` : ''}
-        </div>
-      `;
-    }
-
-    if (msg.translation) {
-      const transId = `trans-${idx}`;
-      contentHtml += `
-        <button class="toggle-trans-btn" onclick="toggleTranslation('${transId}')">🌐 한글 번역 보기</button>
-        <div id="${transId}" class="translation-box" style="display: none;">${msg.translation}</div>
-      `;
-    }
-
-    bubble.innerHTML = contentHtml;
-    row.appendChild(avatar);
-    row.appendChild(bubble);
-    chatMessages.appendChild(row);
-  });
-
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-function toggleTranslation(id) {
-  const el = document.getElementById(id);
-  if (el) {
-    el.style.display = el.style.display === 'none' ? 'block' : 'none';
-  }
-}
-
-function splitTextIntoBilingualChunks(text) {
-  if (!text) return [];
-
-  // 1. 이모지, 서식 기호 제거 (문장부호 , . ! ? 은 호흡 마디 계산용으로 보존)
-  let clean = text.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{20E3}]/gu, '');
-  clean = clean.replace(/\[.*?\]/g, '').replace(/[*_#`~]/g, '').trim();
-
-  // 2. 구두점(, . ! ?)을 기준으로 자연스러운 마디 분리
-  const rawSegments = clean.split(/(?<=[,.!?])\s+/);
-  const chunks = [];
-
-  rawSegments.forEach(segment => {
-    const trimmed = segment.trim();
-    if (!trimmed) return;
-
-    const hasComma = trimmed.endsWith(',');
-    const hasQuestion = trimmed.endsWith('?');
-    const hasExclamation = trimmed.endsWith('!');
-
-    // 세그먼트 전체의 주언어 판별 (영문 알파벳 수 vs 한글 글자 수)
-    const krCount = (trimmed.match(/[\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF]/g) || []).length;
-    const enCount = (trimmed.match(/[a-zA-Z]/g) || []).length;
-
-    // 단어별 잦은 언어 음성 교체로 인한 끊김 방지: 세그먼트 단위로 주언어 지정
-    const lang = (enCount >= krCount) ? 'en-US' : 'ko-KR';
-    const pauseTime = hasComma ? 120 : (hasQuestion || hasExclamation ? 200 : 160);
-
-    chunks.push({
-      text: trimmed,
-      lang: lang,
-      pause: pauseTime,
-      isQuestion: hasQuestion,
-      isExclamation: hasExclamation
-    });
-  });
-
-  return chunks;
-}
-
-function fillPracticeSentence(text) {
-  if (!chatInput) return;
-  chatInput.value = text;
-  if (lingoStatusTag) lingoStatusTag.innerText = "📢 [따라하기 연습] 마이크 버튼 🎙️을 누르고 문장을 크게 읽어보세요!";
-  chatInput.focus();
-}
-
-function speakText(text) {
-  if (!('speechSynthesis' in window)) return;
-  
-  // 🔇 핵심: 선생님이 말할 때 마이크를 즉시 완전히 끄고, TTS 발화 플래그 ON
-  stopListening();
-  isTtsSpeaking = true;
-  lastAiReplyText = text.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();  // 에코 감지용 저장
-  window.speechSynthesis.cancel();
-  if (!naturalEnVoice) loadNaturalVoices();
-
-  const chunks = splitTextIntoBilingualChunks(text);
-  if (chunks.length === 0) { isTtsSpeaking = false; return; }
-
-  if (aiHumanStage) aiHumanStage.classList.add('speaking');
-  startTalkingAvatarLoop();
-
-  if (lingoStatusTag) lingoStatusTag.innerText = "🗣️ Chloe 선생님이 부드러운 목소리로 대화하는 중...";
-
-  let currentIdx = 0;
-
-  // Chrome TTS 멈춤 방지 패치
-  let resumeTimer = setInterval(() => {
-    if (window.speechSynthesis.speaking) {
-      window.speechSynthesis.pause();
-      window.speechSynthesis.resume();
-    }
-  }, 10000);
-
-  const playNextChunk = () => {
-    if (currentIdx >= chunks.length) {
-      clearInterval(resumeTimer);
-      if (aiHumanStage) aiHumanStage.classList.remove('speaking');
-      stopTalkingAvatarLoop();
-      
-      // 🛑 핵심 수정: TTS 끝난 후 마이크를 자동으로 켜지 않음!
-      // 사용자가 마이크 버튼을 직접 눌러야만 대화 시작.
-      // 이렇게 하면 스피커 소리가 마이크에 재입력되는 피드백 루프 100% 차단.
-      setTimeout(() => {
-        isTtsSpeaking = false;
-      }, 2000);  // 2초 후에야 TTS 발화 플래그 해제 (스피커 잔여음 완전 소멸 대기)
-      
-      if (lingoStatusTag) lingoStatusTag.innerText = "🎙️ 마이크 버튼을 눌러 대화를 이어가세요!";
-      return;
-    }
-
-    const chunk = chunks[currentIdx];
-    currentIdx++;
-
-    // 발음 시 문자 부호 명칭("물음표" 등)을 읽지 않도록 기호 제거 후 순수 텍스트 추출
-    let speakable = chunk.text.replace(/[^a-zA-Z0-9\s\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF']/g, ' ').trim();
-    if (!speakable) {
-      playNextChunk();
-      return;
-    }
-
-    const utterance = new SpeechSynthesisUtterance(speakable);
-    
-    if (chunk.lang === 'ko-KR') {
-      utterance.lang = 'ko-KR';
-      if (naturalKrVoice) utterance.voice = naturalKrVoice;
-      utterance.rate = 0.92; // 따스하고 우아한 속도
-      utterance.pitch = 1.02;
-    } else {
-      utterance.lang = 'en-US';
-      if (naturalEnVoice) utterance.voice = naturalEnVoice;
-      
-      // 🎭 품격 있는 억양(Intonation) 및 여유로운 템포 조절
-      if (chunk.isExclamation) {
-        utterance.rate = 0.86;
-        utterance.pitch = 1.15; // 따스하게 감탄하는 톤
-      } else if (chunk.isQuestion) {
-        utterance.rate = 0.82;
-        utterance.pitch = 1.12; // 끝을 정중하고 여유롭게 올리는 올려묻기
-      } else {
-        utterance.rate = 0.83;  // 편안하고 지적인 품격 있는 원어민 속도 (0.90 -> 0.83)
-        utterance.pitch = 1.03; // 편안한 평서문 호흡
-      }
-    }
-
-    utterance.onend = () => {
-      // 쉼표, 마침표마다 사람처럼 0.3~0.4초간 자연스러운 숨쉬기 일시정지(Pause) 적용
-      setTimeout(playNextChunk, chunk.pause || 300);
-    };
-
-    utterance.onerror = (e) => {
-      console.error('Bilingual TTS error:', e);
-      playNextChunk();
-    };
-
-    window.speechSynthesis.speak(utterance);
-  };
-
-  playNextChunk();
-}
-
-function setupSpeechRecognition() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    console.warn("Speech Recognition API non-supported in this browser");
-    return;
-  }
-
-  recognition = new SpeechRecognition();
-  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  recognition.continuous = !isMobile; // 안드로이드 중복 버그 방지를 위해 모바일에서는 continuous 모드 해제
-  recognition.interimResults = true;
-  recognition.lang = 'en-US';
-
-  recognition.onstart = () => {
-    isListening = true;
-    accumulatedTranscript = '';
-    setAvatarState('listening');
-    if (giantMicBtn) giantMicBtn.classList.add('listening');
-    if (micIcon) micIcon.innerText = "🔴";
-    if (micLabel) micLabel.innerText = "화상 통화 중...";
-    if (lingoStatusTag) lingoStatusTag.innerText = "🎤 편하게 말씀을 이어나가세요. Chloe 선생님이 경청하고 있어요...";
-  };
-
-  recognition.onresult = (event) => {
-    // 🔇 핵심: TTS 발화 중이면 들어오는 모든 음성인식 결과를 완전히 무시!
-    if (isTtsSpeaking || window.speechSynthesis.speaking) {
-      console.log("🔇 TTS active — ignoring all recognition results");
-      return;
-    }
-
-    let interim = '';
-    let hasNewFinal = false;
-
-    for (let i = event.resultIndex; i < event.results.length; ++i) {
-      const chunk = event.results[i][0].transcript;
-      if (event.results[i].isFinal) {
-        accumulatedTranscript += (accumulatedTranscript ? ' ' : '') + chunk;
-        hasNewFinal = true;
-      } else {
-        interim += chunk;
-      }
-    }
-
-    // 화면 입력창에는 실시간으로 말하는 내용 표시
-    const displayText = (accumulatedTranscript + ' ' + interim).trim();
-    if (chatInput) chatInput.value = displayText;
-
-    // 🛑 중요: 완벽히 확정된 문장(hasNewFinal)이 들어왔을 때만 전송 타이머 작동!
-    if (hasNewFinal || accumulatedTranscript.trim().length > 0) {
-      if (speechPauseTimer) clearTimeout(speechPauseTimer);
-
-      speechPauseTimer = setTimeout(() => {
-        const textToSend = accumulatedTranscript.trim() || (chatInput ? chatInput.value.trim() : '');
-        
-        // 🔇 에코 감지: TTS가 아직 발화 중이거나 직후이면 무조건 무시
-        if (isTtsSpeaking || window.speechSynthesis.speaking) {
-          console.log("🔇 TTS still active, ignoring mic input:", textToSend);
-          return;
-        }
-        
-        // 🔇 에코 유사도 검사: 인식된 텍스트가 AI의 마지막 응답과 40% 이상 유사하면 에코로 판정
-        if (textToSend.length >= 3 && lastAiReplyText.length > 0) {
-          const cleanInput = textToSend.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-          const inputWords = cleanInput.split(/\s+/);
-          const aiWords = lastAiReplyText.split(/\s+/);
-          const matchCount = inputWords.filter(w => w.length > 2 && aiWords.includes(w)).length;
-          const similarity = inputWords.length > 0 ? matchCount / inputWords.length : 0;
-          
-          if (similarity > 0.4) {
-            console.log(`🔇 Echo detected (${(similarity*100).toFixed(0)}% match). Discarding:`, textToSend);
-            accumulatedTranscript = '';
-            if (chatInput) chatInput.value = '';
-            return;
-          }
-        }
-        
-        // 최소 3글자 이상 의미있는 완성문장일 때만 전송
-        if (textToSend.length >= 3) {
-          console.log("🎤 Final sentence ready to send:", textToSend);
-          stopListening();
-          handleSendMessage();
-        }
-      }, 2000);
-    }
-  };
-
-  recognition.onerror = (e) => {
-    console.warn("Speech recognition error", e);
-    stopListening();
-  };
-
-  recognition.onend = () => {
-    // 🔇 TTS 발화 중이면 절대로 자동 전송하지 않음!
-    if (isTtsSpeaking || window.speechSynthesis.speaking) {
-      console.log("🔇 TTS active at recognition.onend — discarding any accumulated text");
-      accumulatedTranscript = '';
-      if (chatInput) chatInput.value = '';
-      stopListening();
-      return;
-    }
-    if (isListening && chatInput && chatInput.value.trim().length > 0) {
-      handleSendMessage();
-    }
-    stopListening();
-  };
-}
-
-function toggleListening() {
-  if (!recognition) {
-    alert("이 브라우저에서는 마이크 음성 인식이 지원되지 않습니다. 하단 키보드로 입력해 보세요!");
-    return;
-  }
-
-  // 🔇 선생님이 말하는 중에는 마이크 토글 자체를 차단!
-  if (isTtsSpeaking || window.speechSynthesis.speaking) {
-    if (lingoStatusTag) lingoStatusTag.innerText = "🔇 선생님이 말하는 중입니다. 말이 끝나면 마이크를 눌러주세요!";
-    return;
-  }
-
-  if (isListening) {
-    stopListening();  // recognition.stop() 포함됨
-    if (chatInput && chatInput.value.trim().length > 0) {
-      handleSendMessage();
-    }
-  } else {
-    if (chatInput) chatInput.value = '';
-    accumulatedTranscript = '';
-    try {
-      recognition.start();
-    } catch (e) {
-      console.warn("Could not start recognition:", e);
-    }
-  }
-}
-
-function startListening() {
-  if (!recognition || isListening) return;
-  // 🔇 3중 에코 방지: TTS 플래그, speechSynthesis.speaking, 둘 다 체크
-  if (isTtsSpeaking) {
-    console.log("🔇 TTS flag active. Blocking mic activation.");
-    return;
-  }
-  if ('speechSynthesis' in window && window.speechSynthesis.speaking) {
-    console.log("🔇 Speech synthesis is currently active. Blocking mic activation.");
-    return;
-  }
-  try {
-    if (chatInput) chatInput.value = '';
-    accumulatedTranscript = '';
-    recognition.start();
-  } catch (e) {
-    console.warn("Could not auto start listening:", e);
-  }
-}
-
-function stopListening() {
-  isListening = false;
-  if (speechPauseTimer) clearTimeout(speechPauseTimer);
-  accumulatedTranscript = '';  // 🔇 잔여 텍스트 완전 제거
-  
-  // 🔇 핵심 수정: 음성인식 엔진을 실제로 정지!
-  // 이전에는 UI만 변경하고 recognition.stop()을 호출하지 않아서
-  // 백그라운드에서 계속 스피커 소리를 잡았던 근본 원인!
-  if (recognition) {
-    try {
-      recognition.stop();
-    } catch (e) {
-      // 이미 정지된 상태에서 또 stop()하면 에러 — 무시
-    }
-  }
-  
-  if (giantMicBtn) giantMicBtn.classList.remove('listening');
-  if (micIcon) micIcon.innerText = "🎙️";
-  if (micLabel) micLabel.innerText = "화상 대화 시작하기";
-  if (lingoStatusTag) lingoStatusTag.innerText = "👩‍🏫 마이크를 누르고 원어민 선생님과 실제 화상 통화를 시작하세요!";
-}
-
-function renderQuickChips(hintOptions = null) {
-  if (!quickChipsContainer) return;
-  quickChipsContainer.innerHTML = '';
-  if (!activeProfile) return;
-
-  let chips = [];
-  if (hintOptions && Array.isArray(hintOptions) && hintOptions.length > 0) {
-    // 💡 AI가 내려준 상황 맞춤형 다이내믹 힌트 사용
-    chips = hintOptions;
-  } else {
-    // 기본 폴백 힌트
-    if (activeProfile.age <= 5) {
-      chips = ["I played with my toys!", "I had delicious snacks!", "Can you tell me a story?"];
-    } else if (activeProfile.age <= 7) {
-      chips = ["I love T-Rex dinosaurs!", "I played with friends today!", "Teach me a fun word!"];
-    } else if (activeProfile.age <= 9) {
-      chips = ["I love playing games!", "I listened to my favorite song!", "Let me tell you something!"];
-    } else {
-      chips = ["How was your day today?", "What topic should we explore?", "Can you teach me a native idiom?"];
-    }
-  }
-
-  chips.forEach(text => {
-    const btn = document.createElement('button');
-    btn.className = 'chip';
-    btn.innerText = text;
-    btn.addEventListener('click', () => {
-      if (chatInput) chatInput.value = text;
-      handleSendMessage();
-    });
-    quickChipsContainer.appendChild(btn);
-  });
-}
-
-function checkUserEnglishGrammar(text) {
-  const lower = text.toLowerCase().trim();
-  let fixNote = "";
-
-  if (lower.includes("yesterday") && (lower.includes(" i go ") || lower.includes(" i eat ") || lower.includes(" i play ") || lower.startsWith("i go") || lower.startsWith("i eat"))) {
-    fixNote = "어제(yesterday) 있었던 일이므로 현재형(go/eat) 대신 과거형(went/ate)을 사용하셔야 원어민 표현입니다!";
-  } else if (lower.includes("me like") || lower.includes("me eat") || lower.includes("me go")) {
-    fixNote = "주어로 목적격 'Me' 대신 주격 'I'를 사용하세요! (I like / I eat / I go)";
-  } else if (lower.includes("pizza eat") || lower.includes("game play") || lower.includes("food eat")) {
-    fixNote = "영어는 목적어가 동사 뒤로 와야 합니다! (eat pizza / play games)";
-  } else if (lower.includes("i is") || lower.includes("he go") || lower.includes("she like")) {
-    fixNote = "3인칭 단수 주어 뒤의 동사에는 -s/es를 붙이거나 수일치(he goes / she likes)를 해주는 것이 정확합니다!";
-  } else if (lower.includes("listen music") || lower.includes("go market")) {
-    fixNote = "방향과 대상을 나타낼 때 전치사 'to'를 붙여주세요! (listen to music / go to the market)";
-  }
-
-  return fixNote;
-}
-
-async function handleSendMessage() {
-  if (!chatInput) return;
-  const text = chatInput.value.trim();
-  if (!text || !activeProfile) return;
-
-  chatInput.value = '';
-  accumulatedTranscript = '';
-
-  const userMsg = {
-    sender: 'user',
-    content: text,
-    timestamp: new Date().toISOString()
-  };
-
-  chatHistories[activeProfile.id].push(userMsg);
-  saveHistories();
-  renderMessages();
-
-  setAvatarState('thinking');
-  if (lingoStatusTag) lingoStatusTag.innerText = "🤔 Chloe 선생님이 대화를 깊이 이해하며 생각을 정리하는 중...";
-
-  try {
-    const resp = await fetchRealGeminiResponse(activeProfile, text);
-    if (resp && resp.reply) {
-      handleAiResponseReceived(resp, text);
-      return;
-    }
-  } catch (e) {
-    console.error("API Error:", e);
-    if (lingoStatusTag) lingoStatusTag.innerText = "⚠️ AI 연결 중... 오프라인 모드로 전환: " + e.message;
-  }
-
-  setTimeout(() => {
-    const aiResponse = generateNaturalHumanResponse(activeProfile, text);
-    handleAiResponseReceived(aiResponse, text);
-  }, 400);
-}
-
-function handleAiResponseReceived(aiResponse, userText) {
-  const grammarFixNote = checkUserEnglishGrammar(userText);
-  
-  // Analytics Tracking
-  const words = userText.toLowerCase().match(/\b[a-z']+\b/g) || [];
-  words.forEach(w => uniqueWordsUsed.add(w));
-  if (words.length > 0) sentenceLengths.push(words.length);
-
-  if (grammarFixNote) {
-    if (grammarFixNote.includes("과거형")) userErrorPatterns.tense++;
-    else if (grammarFixNote.includes("전치사")) userErrorPatterns.preposition++;
-    else if (grammarFixNote.includes("목적어가 동사 뒤")) userErrorPatterns.wordOrder++;
-    else if (grammarFixNote.includes("수일치") || grammarFixNote.includes("-s/es")) userErrorPatterns.agreement++;
-    else if (grammarFixNote.includes("주격")) userErrorPatterns.other++;
-    else userErrorPatterns.other++;
-  }
-
-  const aiMsg = {
-    sender: 'ai',
-    content: aiResponse.reply,
-    translation: aiResponse.translation,
-    grammarHint: aiResponse.grammarHint,
-    phonemeTip: aiResponse.phonemeTip,
-    pronunciationTip: aiResponse.pronunciationTip,
-    practiceSentence: aiResponse.practiceSentence,
-    nativeUpgrade: aiResponse.nativeUpgrade,
-    advancedUpgrade: aiResponse.advancedUpgrade,
-    grammarFixNote: aiResponse.grammarFixNote || grammarFixNote,
-    timestamp: new Date().toISOString()
-  };
-
-  chatHistories[activeProfile.id].push(aiMsg);
-  saveHistories();
-  renderMessages();
-  
-  // 💡 다이내믹 힌트 렌더링
-  renderQuickChips(aiResponse.hintOptions);
-
-  // 🎴 자동 어휘 저장: 교정된 원어민 추천 표현이 있으면 단어장에 자동 수집
-  if (aiResponse.nativeUpgrade && aiResponse.nativeUpgrade.length > 3) {
-    const exists = userFlashcards.some(card => card.native === aiResponse.nativeUpgrade);
-    if (!exists) {
-      userFlashcards.unshift({
-        id: 'fc_' + Date.now(),
-        original: userText,
-        native: aiResponse.nativeUpgrade,
-        advanced: aiResponse.advancedUpgrade || '',
-        date: new Date().toLocaleDateString('ko-KR')
-      });
-      if (userFlashcards.length > 50) userFlashcards.pop(); // 최신 50개 유지
-      saveFlashcards();
-    }
-  }
-
-  updateVideoOverlaySubtitles(aiResponse.reply, aiResponse.translation);
-
-  // Avatar Mood selection (happy, curious, focused, warm)
-  let mood = 'warm';
-  if (aiMsg.grammarFixNote || aiMsg.pronunciationTip) {
-    mood = 'focused';
-  } else if (userText.includes('?') || aiResponse.reply.includes('?')) {
-    mood = 'curious';
-  } else if (/great|happy|love|fun|awesome|good|wonderful|nice|playing/i.test(aiResponse.reply + ' ' + userText)) {
-    mood = 'happy';
-  }
-  setAvatarMood(mood);
-  checkMissionCompletion(userText, aiResponse.reply);
-
-  speakText(aiResponse.reply);
-}
-
-function correctPhoneticMishearings(text) {
-  if (!text) return text;
-  let cleaned = text;
-  
+/**
+ * web_app/app.js
+ * ----------------------------------------------------------------------------
+ * 전체 오케스트레이션.
+ *
+ *   [마이크] ──침묵게이트──▶ [Gemini Live] ──음성──▶ [아바타 + 스피커]
+ *                                  │
+ *                                  ├── 자막 (내 말 / 선생님 말)
+ *                                  └── 도구 호출 ──▶ 단어카드 · 교정카드 · 칭찬
+ *
+ * 비용 절감의 핵심 동작:
+ *   마이크는 계속 켜져 있지만(로컬 처리는 무료),
+ *   말을 안 하면 서버 연결을 끊고, 다시 말하면 즉시 이어붙입니다.
+ *   사용자 입장에서는 "항상 켜져 있는" 느낌인데 요금은 말한 시간만 나갑니다.
+ * ----------------------------------------------------------------------------
+ */
+ 
+import {
+  PROFILES, COST, AVATAR_MODE, DAILY_MISSIONS, ADULT_SCENARIOS,
+  CHILD_STAGES, CHILD_GAMES, AUDIO, APP_VERSION,
+} from './src/config.js';
+import { MicStream } from './src/mic.js';
+import { AudioPlayer } from './src/player.js';
+/* ⚠️ 원래 './src/liveSession.js' (Gemini Live API, WebSocket 실시간 음성) 였습니다.
+      Live API 가 이 계정에서 열리지 않는 것을 확인해서, 한 턴씩 주고받는
+      방식(일반 Gemini + Gemini TTS)으로 바꿨습니다.
+      chatSession.js 가 **같은 신호 규격**을 그대로 내보내므로 아래 코드는
+      거의 그대로입니다. 3D 아바타·재생기·마이크는 손대지 않았습니다.
+      liveSession.js 는 지우지 않고 남겨뒀습니다 — Live API 가 열리면
+      이 import 한 줄만 되돌리면 됩니다. */
+import { LiveSession, LiveState } from './src/chatSession.js';
+import { AvatarManager } from './src/avatar.js';
+import { UsageMeter } from './src/usage.js';
+import { translate, makeQuiz } from './src/assist.js';
+import * as UI from './src/ui.js';
+import {
+  saveVocabulary, promoteVocabulary, listVocabulary, listDueVocabulary, deleteVocabulary,
+  saveCorrection, listCorrections, errorTypeStats,
+  saveSession, buildRecentSummary,
+  loadSettings, saveSettings,
+  getStage, getStageInfo, setStage, recordStageSuggestion,
+  getCurrentFrame, setCurrentFrame,
+  appendMessage, listRecentConversations, pruneOldMessages,
+} from './src/storage.js';
+import { buildReportText, downloadText, copyText } from './src/report-export.js';
+ 
+/* ═══════════════════════════════════════════════════════════════════════════
+   앱 상태
+   ═══════════════════════════════════════════════════════════════════════════ */
+ 
+const app = {
+  settings: loadSettings(),
+  usage: new UsageMeter(),
+ 
+  profile: null,
+  mic: null,
+  player: null,
+  live: null,
+  avatar: null,
+ 
+  /** 통화 중인지 (사용자가 시작했는지) */
+  inCall: false,
+  /** 재연결 진행 중 (중복 연결 방지) */
+  reconnecting: false,
+  /** 연속 재연결 실패 횟수 (백오프 계산용) */
+  resumeFailStreak: 0,
+  /** 이 시각 전에는 재연결을 시도하지 않습니다 */
+  resumeBackoffUntil: 0,
   /**
-   * ⚠️ 2026-08 대폭 축소했습니다. 아래 두 종류를 전부 걷어냈습니다.
-   *
-   * ① 멀쩡한 영어 단어를 다른 단어로 바꿔버리던 것들
-   *
-   *    light→right, tree→three, best→vest, berry→very, copy→coffee,
-   *    ban→van, bass→bath, wine→vine, lead→read, load→road, sink→think,
-   *    mass→math, fry→fly, lily→really, pray→play
-   *
-   *    이건 **조건 없이** 치환됩니다. 그래서 실제로 이렇게 됐습니다.
-   *      "I saw a big tree in the park"  → "I saw a big three in the park"
-   *      "I turned on the light"         → "I turned on the right"
-   *      "My dad is the best"            → "My dad is the vest"
-   *      "I pray every morning"          → "I play every morning"
-   *
-   *    선생님은 이 망가진 문장을 받습니다. 그리고 프롬프트가 "오인식은
-   *    지적하지 말고 맥락으로 알아들어라"라고 시켜놨으니, 무슨 말인지
-   *    모르는 채로 **안전하고 밋밋한 대답**만 하게 됩니다.
-   *    "대답이 제한적이고 반복적" 의 큰 원인이 여기 있었습니다.
-   *
-   *    게다가 화면과 기록에는 **원문**이 남습니다(app.js에서 raw 를 저장).
-   *    그래서 다음 턴에 선생님은 멀쩡한 문장과 자기가 했던 엉뚱한 대답을
-   *    나란히 보게 되고, 왜 그랬는지 알 방법이 없습니다.
-   *
-   *    발음 오인식은 이제 **선생님이** 처리합니다. 서버 프롬프트의
-   *    EXTREME STT HALLUCINATION TOLERANCE 가 바로 그 장치이고,
-   *    맥락을 아는 쪽이 판단하는 게 맞습니다. 정규식은 맥락을 모릅니다.
-   *
-   * ② 학습자의 문법을 몰래 고쳐주던 것들
-   *
-   *    "he don't"→"he doesn't", "yesterday i go"→"yesterday I went",
-   *    "i am boring"→"I am bored", "more better"→"better" 등
-   *
-   *    이건 더 나쁩니다. **이 앱이 가르치려는 바로 그 실수들**을 선생님이
-   *    보기 전에 지워버립니다. 선생님은 학습자가 완벽하게 말했다고 믿으니
-   *    grammarFixNote 를 만들 이유가 없어집니다. 교정 카드가 안 뜨는 게
-   *    당연했습니다.
-   *
-   * 남긴 것은 **영어 단어가 아닌 것**뿐입니다. 이건 바꿔도 잃을 게 없습니다.
+   * 설정 오류처럼 "다시 해도 소용없는" 이유. 값이 있으면 재시도를 멈춥니다.
+   * 통화를 새로 시작하면 지워집니다.
    */
-  const phoneticMap = [
-    [/\bsree\b/gi, "three"],
-    [/\bdat\b/gi, "that"],
-    [/\bpish\b/gi, "fish"],
-    [/\bpone\b/gi, "phone"],
-    [/\bwant to skull\b/gi, "went to school"],
-    [/\bits snot\b/gi, "it's not"]
-  ];
-
-  phoneticMap.forEach(([regex, replacement]) => {
-    cleaned = cleaned.replace(regex, replacement);
-  });
-
-  return cleaned;
-}
-
-async function fetchRealGeminiResponse(profile, userText) {
-  const { krName, enName } = getProfileNameInfo(profile);
-  
-  // 발음 오인식 1차 자동 보정
-  const correctedUserText = correctPhoneticMishearings(userText);
-
-  // 최근 16턴의 대화 기록을 넉넉하게 전달하여 AI가 이전 대답/질문을 100% 기억
-  const historySnippet = (chatHistories[profile.id] || [])
-    .slice(-16)
-    .map(m => `${m.sender === 'user' ? enName : 'Chloe'}: ${m.content}`)
-    .join("\n");
-
-  const requestBody = {
-    userName: `${enName} (${krName})`,
-    userAge: profile.age,
-    userText: correctedUserText,
-    history: historySnippet,
-    flashcards: userFlashcards.slice(0, 10),
-    apiKey: userGeminiApiKey || ''
-  };
-
-  // 모바일 환경 및 Vercel 콜드스타트를 고려하여 타임아웃을 25초로 넉넉하게 연장
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25000);
-
-  try {
-    if (lingoStatusTag) lingoStatusTag.innerText = "🔄 Chloe 교수님과 연결 중...";
-
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => 'Unknown error');
-      console.error("API response error:", res.status, errText);
-      throw new Error(`서버 응답 에러 (${res.status}): ${errText.substring(0, 100)}`);
-    }
-
-    const data = await res.json();
-    if (!data.reply) {
-      console.error("No reply in data:", data);
-      throw new Error("AI 응답에 reply가 없습니다");
-    }
-    
-    if (lingoStatusTag) lingoStatusTag.innerText = "✅ Chloe 교수님 응답 완료!";
-    return data;
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') {
-      throw new Error("서버 응답 시간 초과 (15초)");
-    }
-    throw err;
+  resumeBlockedReason: null,
+  /** 재연결 동안 잠시 담아두는 오디오 프레임 */
+  pendingFrames: [],
+ 
+  /**
+   * 끼어든 직후, 이미 날아오고 있던 선생님 음성을 버리는 기간(타임스탬프).
+   *
+   * 끼어들면 서버가 생성을 멈추지만, 그 신호가 도착하기까지 수백 ms 동안
+   * 이미 전송된 음성 조각이 계속 들어옵니다. 그걸 그대로 재생하면
+   *  ① 끼어들었는데 선생님이 계속 말하고
+   *  ② player.speaking 이 다시 true 가 되면서 문턱(duck)이 다시 올라가
+   *     방금 말하기 시작한 아이 목소리가 문턱 아래로 떨어져 발화가 잘립니다.
+   * 서버가 interrupted / turnComplete 를 보내주면 즉시 해제됩니다.
+   */
+  bargeGuardUntil: 0,
+ 
+  /** 마지막으로 확정된 "내 말" (같은 말이 두 번 찍히는 걸 막습니다) */
+  lastUserFinal: null,
+  /** 선생님이 **지금 말하고 있는** 문장 (스피커 되돌림 판별용) */
+  teacherOnAirText: '',
+  /** 스피커 소리가 마이크로 되돌아온 것으로 확인된 횟수 */
+  echoHits: 0,
+  /** 통화 시작이 진행 중 (두 번 눌림 방지) */
+  starting: false,
+ 
+  idleTimer: null,
+  mission: { text: '', done: false },
+  /** 이번 통화 식별자 (대화 기록을 묶는 값) */
+  sessionId: '',
+  /** 아이의 현재 학습 단계 (어른이면 null) */
+  stage: null,
+  /** 단계가 바뀌어서 다음 턴에 세션을 새로 열어야 하는지 */
+  pendingStageReconnect: false,
+ 
+  /**
+   * 진단 정보.
+   * 실제 통화가 이상할 때 무엇이 잘못됐는지 알려면 이 숫자들이 필요합니다.
+   * (설정에서 "진단 정보 보기"를 켜면 화면에 표시됩니다)
+   */
+  diag: {
+    connects: 0,
+    activityStart: 0,
+    activityEnd: 0,
+    framesSent: 0,
+    turns: 0,
+    interrupts: 0,
+    endOfSpeechMs: 0,
+    resumed: false,
+    lastError: '',
+    /** 선생님 목소리가 마이크로 되돌아와서 버린 인식 결과 수 */
+    echoDropped: 0,
+    /** 같은 말이 두 번 인식되어 하나로 합친 횟수 */
+    dupMerged: 0,
+    /** 선생님이 말하는 중에 발화가 시작된 횟수 (에코인지 진짜 끼어들기인지 판단) */
+    startsWhileTeacher: 0,
+    /** 측정된 스피커 누출 크기 (0에 가까울수록 좋음. 이어폰이면 거의 0) */
+    echoFloor: 0,
+  },
+  /** 마지막으로 선생님이 한 말 (번역 버튼용) */
+  lastTeacherLine: '',
+  /** 이번 통화에서 이미 카드로 띄운 표현 (같은 걸 반복해서 띄우지 않게) */
+  seenKeywords: new Set(),
+ 
+  session: {
+    startedAt: 0,
+    /** 세션 시작 시점의 오늘 누적 사용량 (세션 분량 계산용) */
+    startUsageMin: 0,
+    turns: 0,
+    newWords: [],
+    highlights: [],
+    topics: [],
+    /** 이번 대화에서 연습한 문장 틀 */
+    frames: [],
+  },
+};
+ 
+/* ═══════════════════════════════════════════════════════════════════════════
+   시작
+   ═══════════════════════════════════════════════════════════════════════════ */
+ 
+function boot() {
+  UI.initUi();
+  const v = document.getElementById('app-version');
+  if (v) v.textContent = APP_VERSION;
+  // 오래된 대화는 정리합니다 (저장 공간 보호)
+  void pruneOldMessages(30).catch(() => {});
+  renderProfileScreen();
+  wireGlobalControls();
+  UI.showScreen('profile');
+ 
+  // 저장돼 있던 "안전 모드"를 자동으로 껐다면 반드시 알려줍니다.
+  // 조용히 바꿔놓으면, 에코 때문에 일부러 켜뒀던 분은 이유도 모른 채
+  // 소리가 울리기 시작합니다.
+  if (app.settings._notifyHalfDuplexReset) {
+    delete app.settings._notifyHalfDuplexReset;
+    saveSettings(app.settings);
+    UI.toast(
+      '내 말이 두 번 인식되던 문제를 고쳤습니다. 선생님 말을 끊고 싶을 땐 ' +
+      '화면의 ✋ 버튼을 누르세요.',
+      { variant: 'info', ttlMs: 9000 }
+    );
   }
 }
-
-const OFFLINE_TOPICS = {
-  travel: [
-    "I love traveling! Where is the best place you have ever visited?",
-    "Traveling is so fun. Do you prefer the beach or the mountains?",
-    "If you could travel anywhere in the world right now, where would you go?"
-  ],
-  school: [
-    "School can be fun! What's your favorite subject?",
-    "Did you learn anything interesting at school today?",
-    "What do you usually do during recess at school?"
-  ],
-  family: [
-    "Family is so important! Do you have a favorite thing you do with your family?",
-    "What's the funniest thing that happened with your family recently?",
-    "Do you help your parents at home? What chores do you do?"
-  ],
-  emotions: [
-    "It's good to talk about feelings. What made you smile today?",
-    "I understand. How do you usually cheer yourself up when you're sad?",
-    "That sounds intense. What are you most excited about right now?"
-  ],
-  hobbies: [
-    "Hobbies are great! How did you get into your favorite hobby?",
-    "What do you enjoy doing in your free time the most?",
-    "Is there a new hobby you'd like to try someday?"
-  ],
-  dreams: [
-    "Dreams are magical! What do you want to be when you grow up?",
-    "If you had a superpower, what would it be?",
-    "What is your biggest dream right now?"
-  ],
-  health: [
-    "Health is wealth! What's your favorite way to exercise?",
-    "Did you drink enough water today? It's really important!",
-    "What's your favorite healthy snack to eat?"
-  ],
-  weather: [
-    "The weather affects our mood. Do you like rainy days or sunny days?",
-    "What's the weather like where you are today?",
-    "What's your favorite season of the year?"
-  ],
-  food: [
-    "Food is delicious! What's your absolute favorite meal?",
-    "If you could only eat one food for the rest of your life, what would it be?",
-    "Do you like cooking or baking? What's the best thing you can make?"
-  ],
-  culture: [
-    "Culture is fascinating! What's a traditional dish from your country that you love?",
-    "Do you have a favorite festival or holiday in your culture?",
-    "What's something unique about your country that you think everyone should know?"
-  ],
-  movies: [
-    "I love movies! What's the best movie you've seen recently?",
-    "If you could be any character in a movie, who would you be?",
-    "Do you prefer action movies or funny ones?"
-  ],
-  music: [
-    "Music is a universal language! What kind of music do you listen to?",
-    "Do you play any musical instruments, or do you want to learn one?",
-    "Who is your favorite singer or band?"
-  ],
-  sports: [
-    "Sports keep us active! What's your favorite sport to play or watch?",
-    "Have you ever been to a live sports game?",
-    "Who is your favorite athlete?"
-  ],
-  technology: [
-    "Technology is amazing! What's your favorite app or gadget?",
-    "How do you think technology will change the world in the future?",
-    "Do you like playing video games? Which one is your favorite?"
-  ],
-  work: [
-    "Work can be rewarding! What do you think is the hardest job in the world?",
-    "If you could have any job for a day, what would it be?",
-    "What do you think is the best part about having a job?"
-  ],
-  relationships: [
-    "Relationships are important! What makes a good friend?",
-    "Who is someone you look up to and why?",
-    "What's the best way to show someone you care about them?"
-  ],
-  pets: [
-    "Pets are so cute! Do you have any pets, or do you want one?",
-    "If you could have any animal as a pet, what would you choose?",
-    "What's the funniest thing you've seen a pet do?"
-  ],
-  holidays: [
-    "Holidays are the best! What's your favorite holiday of the year?",
-    "How do you usually celebrate your favorite holiday?",
-    "If you could invent a new holiday, what would it celebrate?"
-  ],
-  nature: [
-    "Nature is beautiful! What's your favorite animal in the wild?",
-    "Do you like camping or hiking in nature?",
-    "What's the most beautiful place in nature you've ever seen?"
-  ],
-  science: [
-    "Science is cool! What's the most interesting science fact you know?",
-    "If you could travel to space, which planet would you visit?",
-    "What's a scientific invention you wish existed?"
-  ]
-};
-
-// 🧠 문맥을 100% 반영해 질문에 '진짜 대답'하는 초스마트 오프라인 추론 엔진
-function generateNaturalHumanResponse(profile, userText) {
-  conversationTurnCount++;
-  const { krName, enName } = getProfileNameInfo(profile);
-  const lower = userText.toLowerCase().trim();
-
-  let reply = "";
-  let trans = "";
-  let native = "";
-  let adv = "";
-  
-  const grammarFixNote = checkUserEnglishGrammar(userText);
-
-  // Determine Topic
-  let matchedTopic = null;
-  const topicKeywords = {
-    travel: ["travel", "trip", "visit", "go to", "vacation"],
-    school: ["school", "study", "teacher", "class", "homework"],
-    family: ["family", "mom", "dad", "sister", "brother", "parents"],
-    emotions: ["happy", "sad", "angry", "excited", "tired", "feel"],
-    hobbies: ["hobby", "play", "game", "read", "watch", "fun"],
-    dreams: ["dream", "want to be", "future", "hope"],
-    health: ["health", "sick", "doctor", "hospital", "exercise"],
-    weather: ["weather", "rain", "sun", "cold", "hot", "snow"],
-    food: ["food", "eat", "lunch", "dinner", "hungry", "delicious"],
-    culture: ["culture", "korea", "tradition", "country"],
-    movies: ["movie", "cinema", "film", "watch"],
-    music: ["music", "song", "sing", "listen"],
-    sports: ["sport", "soccer", "baseball", "basketball", "play"],
-    technology: ["computer", "phone", "app", "internet", "tech"],
-    work: ["work", "job", "office", "money"],
-    relationships: ["friend", "love", "meet", "people"],
-    pets: ["pet", "dog", "cat", "animal", "cute"],
-    holidays: ["holiday", "christmas", "halloween", "vacation", "party"],
-    nature: ["nature", "tree", "mountain", "sea", "flower", "animal"],
-    science: ["science", "space", "star", "planet", "math"]
+ 
+function renderProfileScreen() {
+  UI.renderProfiles(PROFILES, {
+    usageOf: (id) => ({
+      usedMin: app.usage.todayMinutes(id),
+      limitMin: app.usage.dailyLimit(id),
+      exhausted: app.usage.isExhausted(id),
+    }),
+    onSelect: (profile) => startCall(profile).catch(handleFatal),
+  });
+}
+ 
+/**
+ * 놀이/상황 목록.
+ * 아이는 지금 단계에 맞는 말놀이만 보여줍니다 —
+ * 0단계 아이에게 "비즈니스 미팅"을 보여주면 아무 의미가 없습니다.
+ */
+function renderGameList() {
+  const isChild = app.stage !== null;
+  const items = isChild ? (CHILD_GAMES[app.stage] || []) : ADULT_SCENARIOS;
+ 
+  UI.renderRoleplay(items, {
+    onSelect: (item) => {
+      UI.closeModal('roleplay-modal');
+      if (!app.inCall) {
+        UI.toast('먼저 대화를 시작해 주세요.', { variant: 'warn' });
+        return;
+      }
+ 
+      // 텍스트 한 줄만 넣어주면 됩니다 (음성 토큰 소모 없음)
+      const prompt = isChild
+        ? `[놀이 시작] 지금부터 "${item.title}" 놀이를 하자. ${item.desc}. ` +
+          `${app.stage}단계 규칙을 그대로 지키면서, 짧게 한마디로 시작해줘.`
+        : `[상황 설정] 지금부터 "${item.title}" 상황으로 역할극을 시작하자. ` +
+          `${item.desc}. 너가 상대 역할을 맡고, 짧게 첫 대사를 던져줘.`;
+ 
+      sendTextToTeacher(prompt, { echo: false });
+      UI.toast(`${item.title} 시작!`, { variant: 'success' });
+    },
+  });
+}
+ 
+/* ═══════════════════════════════════════════════════════════════════════════
+   통화 시작 / 종료
+   ═══════════════════════════════════════════════════════════════════════════ */
+ 
+async function startCall(profile) {
+  // 두 번 눌리면(두 번 탭, 더블클릭) 마이크와 세션이 **두 벌** 생깁니다.
+  // 그러면 같은 목소리가 두 번 전송되어 인식도 두 번 됩니다.
+  if (app.inCall || app.starting) return;
+  if (app.usage.isExhausted(profile.id)) {
+    UI.toast(`${profile.name}는 오늘 목표를 다 채웠어요! 내일 또 만나요 🎉`, {
+      variant: 'warn', ttlMs: 6000,
+    });
+    return;
+  }
+  app.starting = true;
+  try {
+    await startCallInner(profile);
+  } finally {
+    app.starting = false;
+  }
+}
+ 
+async function startCallInner(profile) {
+  app.profile = profile;
+  app.inCall = true;
+  // 아이는 저장된 학습 단계를 불러옵니다 (선생님이 판단해 올려둔 값)
+  app.stage = profile.kind === 'child' ? getStage(profile.id) : null;
+  app.pendingStageReconnect = false;
+  // 새 통화니까 지난 실패 기록은 지웁니다.
+  // (설정을 고치고 다시 시작했는데 계속 막혀 있으면 안 됩니다)
+  // liveAnnounced: '연결됐다'를 이미 셌는지. @see handleLiveState
+  app.liveAnnounced = false;
+  app.resumeFailStreak = 0;
+  app.resumeBackoffUntil = 0;
+  app.resumeBlockedReason = null;
+  app.diag = {
+    connects: 0, activityStart: 0, activityEnd: 0, framesSent: 0,
+    turns: 0, interrupts: 0, endOfSpeechMs: 0, resumed: false, lastError: '', level: 0,
+    echoDropped: 0, dupMerged: 0, startsWhileTeacher: 0, echoFloor: 0,
   };
-
-  for (const [topic, keywords] of Object.entries(topicKeywords)) {
-    if (keywords.some(kw => lower.includes(kw))) {
-      matchedTopic = topic;
+  app.lastUserFinal = null;
+  app.teacherOnAirText = '';
+  app.echoHits = 0;
+  app.bargeGuardUntil = 0;
+  // 이번 통화를 식별할 값 (대화 기록을 묶는 데 씁니다)
+  app.sessionId = `${profile.id}-${Date.now()}`;
+  app.session = {
+    startedAt: Date.now(),
+    startUsageMin: app.usage.todayMinutes(profile.id),
+    turns: 0, newWords: [], highlights: [], topics: [], frames: [],
+  };
+ 
+  UI.showScreen('call');
+  UI.setActiveProfile(profile);
+  UI.setStageChip(app.stage !== null ? CHILD_STAGES[app.stage] : null);
+  renderGameList();
+  UI.clearTranscript();
+  UI.clearTeachingCards();
+  app.seenKeywords.clear();
+  UI.setUserEcho('');
+  UI.setTeacherSubtitle('');
+  UI.setKoreanSubtitle('');
+  UI.setTranslateAvailable(false);
+  app.lastTeacherLine = '';
+  UI.setAvatarState('connecting');
+  UI.setStatus('선생님을 연결하고 있어요...');
+  // 프로필을 막 바꿨으므로 throttle을 무시하고 즉시 갱신합니다
+  // (안 그러면 직전 아이의 사용량이 잠깐 그대로 보입니다)
+  refreshUsageUi({ force: true });
+ 
+  pickMission(profile);
+ 
+  // ── 1. 오디오 재생기 ──────────────────────────────────────────────
+  app.player = new AudioPlayer({
+    onSpeakingChange: (speaking) => {
+      UI.setAvatarState(speaking ? 'speaking' : app.live?.isLive ? 'listening' : 'idle');
+      app.avatar?.setState(speaking ? 'speaking' : 'listening');
+      // 선생님이 말하는 동안 마이크를 어떻게 다룰지.
+      //  barge(기본) = 끄지 않고 문턱만 높임 → 언제든 끼어들 수 있음
+      //  mute        = 완전히 닫음 → 에코는 확실히 막지만 끼어들 수 없음
+      app.mic?.setTeacherSpeaking(speaking, app.settings.halfDuplex ? 'mute' : 'barge');
+      // ✋ 버튼은 **모드와 상관없이** 띄웁니다.
+      // 안전 모드에서는 마이크가 닫혀 있어서 목소리로는 끼어들 수 없으므로,
+      // 오히려 이 버튼이 유일한 방법입니다. (forceSpeak가 억제를 풀어줍니다)
+      UI.setInterruptVisible(speaking);
+    },
+  });
+  await app.player.init();
+ 
+  // ── 2. 아바타 ────────────────────────────────────────────────────
+  app.avatar = new AvatarManager({
+    container: UI.refs()['avatar-stage'],
+    imageSrc: 'assets/chloe_teacher_avatar.jpg',
+    getLevel: () => app.player?.getLevel() ?? 0,
+    getMouthWidth: () => app.player?.getMouthWidth() ?? 0.5,
+    faceMap: app.settings.faceMap,
+    // 목사님이 readyplayer.me 에서 직접 만드신 아바타가 있으면 그걸 씁니다.
+    avatarModelUrl: app.settings.avatarModelUrl,
+    onAvatarMs: (ms) => app.usage.addAvatar(profile.id, ms),
+    onModeChange: (mode, note) => {
+      // 영상(Simli) 모드에서만 Simli가 직접 소리를 냅니다. 그때만 로컬 재생을
+      // 끕니다. 사진·3D 모드는 **반드시** 우리 재생기가 소리를 내야 합니다.
+      // ⚠️ 예전에 이 조건이 `=== PHOTO` 였습니다. 3D 모드를 추가하는 순간
+      //    3D에서 소리가 통째로 사라지는 버그가 됩니다. 반드시 "영상이 아닐 때"
+      //    로 적어야 모드를 더 늘려도 안전합니다.
+      app.player?.setLocalOutputEnabled(mode !== AVATAR_MODE.VIDEO);
+      // 영상 모드는 스피커 소리가 우리 재생기보다 늦게 끝납니다.
+      // 문턱을 먼저 내리면 남은 선생님 목소리를 사람 말로 잡습니다.
+      applyDuckRelease(mode);
+      if (note) UI.toast(note, { variant: 'warn', ttlMs: 7000 });
+    },
+  });
+  // ⚠️ 아바타가 안 뜨는 건 대화를 막을 이유가 아닙니다.
+  //    예전에는 사진 파일이 404 나면 여기서 예외가 통째로 튀어나가
+  //    inCall 이 true 인 채로 죽은 통화 화면에 갇혔습니다.
+  //    얼굴 없이라도 대화는 되게 하고, 사용자에게만 알려줍니다.
+  try {
+    await app.avatar.mount(app.settings.avatarMode);
+  } catch (err) {
+    console.error('[app] 아바타를 붙이지 못했습니다', err);
+    UI.toast('선생님 얼굴을 불러오지 못했어요. 목소리로는 그대로 대화할 수 있습니다.', {
+      variant: 'warn', ttlMs: 7000,
+    });
+  }
+ 
+  // ── 3. Live 세션 ─────────────────────────────────────────────────
+  app.live = new LiveSession({
+    // 말의 시작과 끝을 서버에 직접 알립니다.
+    // 이게 없으면 서버가 끊긴 조각을 하나로 이어붙여 턴이 끝나지 않습니다.
+    onVadConfig: (ms) => {
+      app.diag.endOfSpeechMs = ms;
+      app.mic?.setEndOfSpeechMs(ms);
+      // 자동 검사에서 확인할 수 있게 남겨둡니다 (동작에는 영향 없음)
+      window.__eosApplied = ms;
+    },
+ 
+    /* 설정 사다리를 타는 중이라는 걸 화면에 보여줍니다.
+       아무 말 없이 몇 초씩 멈춰 있으면 고장난 줄 아시기 때문입니다. */
+    onLadderStep: (text) => {
+      UI.setStatus(text);
+    },
+    onAudio: handleTeacherAudio,
+    onUserText: handleUserText,
+    onTeacherText: handleTeacherText,
+    onToolCall: handleToolCall,
+    onInterrupted: handleInterrupted,
+    onTurnComplete: handleTurnComplete,
+    onState: handleLiveState,
+  });
+ 
+  // ── 4. 마이크 ────────────────────────────────────────────────────
+  app.mic = new MicStream({
+    onActivity: (kind) => {
+      // 세션이 끊겨 있으면 LiveSession이 알아서 무시합니다.
+      // (중복 start / 고아 end 를 막는 책임은 LiveSession에 있습니다)
+      if (kind === 'start') {
+        if (app.live?.sendActivityStart()) app.diag.activityStart++;
+        if (app.player?.speaking) app.diag.startsWhileTeacher++;
+ 
+        // 선생님이 말하는 중에 사람이 말을 시작했다 = 끼어들기.
+        // (이 신호는 MIN_UTTERANCE_MS 만큼 확인된 "진짜 말"일 때만 옵니다.
+        //  문 닫는 소리로는 여기까지 오지 않습니다)
+        if (app.player?.speaking && !app.settings.halfDuplex) beginBarge();
+      } else {
+        if (app.live?.sendActivityEnd()) app.diag.activityEnd++;
+        /* 사람이 말을 마쳤습니다. 붙들고 있던 선생님 음성이 있으면 지금 내보냅니다.
+           여기서 안 풀면 다음 조각이 도착할 때까지 잠자코 있게 되고,
+           그게 마지막 조각이었다면 **영영 재생되지 않습니다.** */
+        if (app.deferredTeacherAudio?.length) {
+          flushDeferredTeacherAudio('사람이 말을 마침');
+        }
+      }
+      updateDiagnostics({ force: true });
+    },
+    onAudioFrame: handleMicFrame,
+    onLevel: (level, speaking) => {
+      UI.setMicLevel(level, speaking);
+      app.diag.level = level;
+      if (app.settings.showDiagnostics) updateDiagnostics();
+      if (speaking && !app.player?.speaking) {
+        UI.setAvatarState('listening');
+        app.avatar?.setState('listening');
+      }
+    },
+    onStreamedMs: (ms) => app.usage.addAudioIn(profile.id, ms),
+  });
+  // ⚠️ 설정값이 아니라 **실제로 붙은** 아바타 모드를 봐야 합니다.
+  //    영상 아바타 연결이 실패하면 사진으로 되돌아가는데, 설정값은 여전히
+  //    'video'입니다. 그대로 쓰면 사진 모드인데도 문턱이 0.7초씩 더 높게
+  //    유지되어, 바로 대답하는 아이 말이 그 사이에 묻힙니다.
+  //    (아바타는 마이크보다 먼저 붙기 때문에 mount 중의 onModeChange 는
+  //     app.mic 이 아직 null 이라 그냥 지나갑니다. 그래서 여기서 한 번 더 겁니다)
+  applyDuckRelease(app.avatar?.mode ?? app.settings.avatarMode);
+ 
+  // 자동 검사용 훅 (동작에는 영향 없음)
+  window.__forceActivityStart = () => app.live?.sendActivityStart();
+  window.__forceActivityEnd = () => app.live?.sendActivityEnd();
+  // 선생님이 말하기 시작/끝났을 때의 마이크 상태를 검사에서 확인하기 위한 훅.
+  // (실제 오디오를 재생하지 않고도 끼어들기 경로를 검증할 수 있게 합니다)
+  window.__setTeacherSpeaking = (speaking) => {
+    app.player.speaking = !!speaking;
+    app.player.onSpeakingChange?.(!!speaking);
+  };
+  window.__diag = () => ({ ...app.diag });
+  // 검사용: 모드를 직접 바꿔 봅니다
+  window.__setHalfDuplex = (on) => {
+    app.settings.halfDuplex = !!on;
+    app.mic?.setTeacherSpeaking(!!app.player?.speaking, on ? 'mute' : 'barge');
+  };
+  window.__micState = () => ({
+    suppressed: !!app.mic?.suppressed,
+    duck: app.mic?.gate?.duckFactor ?? null,
+    speaking: !!app.mic?.isSpeaking(),
+  });
+ 
+  try {
+    await app.mic.start();
+  } catch (err) {
+    console.error('[app] 마이크 시작 실패', err);
+    UI.setAvatarState('error');
+    UI.setStatus('마이크 권한이 필요합니다.');
+    UI.toast('마이크 사용을 허용해 주세요. 주소창의 자물쇠 아이콘에서 바꿀 수 있습니다.', {
+      variant: 'error', ttlMs: 9000,
+    });
+    // ⚠️ 여기서 그냥 return하면 inCall이 true로 남습니다.
+    //    그러면 마이크 버튼이 "들리지 않는데 요금은 나가는" 세션을 열고,
+    //    유휴 감시도 안 돌아서 자동으로 끊기지도 않습니다. 반드시 정리합니다.
+    await endCall();
+    return;
+  }
+ 
+  // ── 5. 연결 ──────────────────────────────────────────────────────
+  await connectLive();
+  // 서버가 알려준 값이 있으면 마이크에 반영 (연결이 마이크보다 늦게 끝남)
+  if (app.diag.endOfSpeechMs) app.mic?.setEndOfSpeechMs(app.diag.endOfSpeechMs);
+ 
+  // 연결 도중 사용자가 나갔으면(뒤로가기) 여기서 멈춥니다.
+  // 안 그러면 세션 수가 부풀고, 주인 없는 3초 감시 타이머가 남습니다.
+  if (!app.inCall) return;
+ 
+  // 연결이 끝나기 전에 이미 말을 시작했을 수 있습니다 (마이크가 먼저 켜짐).
+  // 그 첫 마디를 새 세션에 이어붙입니다.
+  flushPendingAudio();
+ 
+  app.usage.addSession(profile.id);
+  startIdleWatch();
+}
+ 
+/** Live 세션 연결 (첫 연결 및 재연결 공통) */
+async function connectLive() {
+  const profile = app.profile;
+  if (!profile || !app.live) return;
+ 
+  const [dueWords, allWords, recentSummary] = await Promise.all([
+    listDueVocabulary(profile.id, 12),
+    listVocabulary(profile.id, { limit: 60 }),
+    buildRecentSummary(profile.id),
+  ]);
+ 
+  // 복습할 단어를 앞에 놓아 선생님이 우선적으로 다시 등장시키게 합니다
+  const knownWords = [...dueWords.map((v) => v.word), ...allWords.map((v) => v.word)]
+    .filter((w, i, arr) => arr.indexOf(w) === i)
+    .slice(0, 60);
+ 
+  await app.live.connect(profile.id, {
+    recentSummary,
+    knownWords,
+    todayMission: app.mission.text,
+    // 이번 통화에서 이미 한 번 연결한 적이 있으면 재연결입니다.
+    // 그때마다 인사를 다시 하면 "같은 말을 반복"하는 것처럼 보입니다.
+    isResume: app.diag.connects > 0,
+    // 아이만 해당 — 서버가 이 단계에 맞는 교수법과 도구를 골라줍니다
+    ...(app.stage !== null
+      ? {
+          stage: app.stage,
+          currentFrame: getCurrentFrame(profile.id),
+          // 부모가 설정에서 바꾼 읽기 여부를 선생님도 알아야 합니다.
+          // 안 보내면 카드만 바뀌고 선생님은 계속 옛 기준으로 말합니다.
+          canRead: currentCanRead(),
+        }
+      : {}),
+  });
+}
+ 
+async function endCall({ backToProfiles = true } = {}) {
+  stopIdleWatch();
+  app.inCall = false;
+ 
+  await saveSessionSummary();
+ 
+  await app.live?.disconnect({ keepContext: false });
+  await app.mic?.stop();
+  await app.player?.close();
+  await app.avatar?.unmount();
+ 
+  app.lastTeacherLine = '';
+  app.live = null;
+  app.mic = null;
+  app.player = null;
+  app.avatar = null;
+  app.pendingFrames = [];
+ 
+  app.usage.flush();
+ 
+  if (backToProfiles) {
+    renderProfileScreen();
+    UI.showScreen('profile');
+  }
+}
+ 
+async function saveSessionSummary() {
+  if (!app.profile || !app.session.startedAt || app.session.turns === 0) return;
+  try {
+    await saveSession(app.profile.id, {
+      startedAt: app.session.startedAt,
+      endedAt: Date.now(),
+      turns: app.session.turns,
+      // 오늘 누적이 아니라 **이번 세션**에서 늘어난 만큼만 기록합니다
+      minutes: Math.max(
+        0,
+        app.usage.todayMinutes(app.profile.id) - (app.session.startUsageMin || 0)
+      ),
+      topics: app.session.topics.slice(-5),
+      highlights: app.session.highlights.slice(-5),
+      newWords: app.session.newWords.slice(-15),
+      frames: app.session.frames.slice(-5),
+      stage: app.stage,
+    });
+  } catch (err) {
+    console.warn('[app] 세션 요약 저장 실패', err);
+  }
+}
+ 
+/* ═══════════════════════════════════════════════════════════════════════════
+   오디오 흐름
+   ═══════════════════════════════════════════════════════════════════════════ */
+ 
+/** 마이크 프레임 → 서버. 유휴로 끊겨 있으면 되살립니다. */
+function handleMicFrame(base64) {
+  if (!app.inCall) return;
+  app.diag.framesSent++;
+ 
+  // 화면이 안 보이는 상태(다른 탭/앱)에서는 생활소음으로 재연결되지 않게 막습니다.
+  // 이게 없으면 숨겨둔 탭이 혼자 다시 연결해서 요금을 씁니다.
+  if (document.hidden) return;
+ 
+  if (app.live?.isLive) {
+    app.live.sendAudio(base64);
+    return;
+  }
+ 
+  // 끊긴 상태에서 다시 말을 시작함 → 조용히 이어붙입니다
+  app.pendingFrames.push(base64);
+  // 최근 2초분만 유지 (무한정 쌓이지 않게)
+  const frameMs = (AUDIO.FRAME_SAMPLES / AUDIO.INPUT_SAMPLE_RATE) * 1000;
+  const maxFrames = Math.ceil(2000 / frameMs);
+  while (app.pendingFrames.length > maxFrames) app.pendingFrames.shift();
+ 
+  void resumeLive();
+}
+ 
+/**
+ * 새 세션이 열린 직후 호출합니다.
+ *
+ * ⭐ 세션이 없는 동안 말을 시작했다면, 새 세션에는 그 사실이 없습니다.
+ *    모아둔 오디오를 그냥 보내면 발화 구간 밖의 소리가 되어 통째로 버려집니다.
+ *    반드시 "말 시작"을 먼저 알린 뒤에 밀어넣어야 합니다.
+ *
+ * 첫 연결(startCall)과 재연결(resumeLive) 양쪽에서 씁니다. 예전에는 재연결에만
+ * 있어서, 마이크 권한을 허용하자마자 말한 첫 마디가 통째로 사라졌습니다.
+ */
+function flushPendingAudio() {
+  if (!app.inCall || !app.live?.isLive) return;
+ 
+  const frames = app.pendingFrames;
+  app.pendingFrames = [];
+  if (!frames.length) {
+    // 모아둔 게 없어도, 말하는 중이었다면 새 세션에 그 사실을 알려야 합니다
+    if (app.mic?.isSpeaking() && app.live.sendActivityStart()) app.diag.activityStart++;
+    return;
+  }
+ 
+  // ⚠️ 여기서 activityStart 를 조건부로 보내면 안 됩니다.
+  //    재연결이 2.4초(SILENCE_TAIL_MS)보다 오래 걸리면 게이트는 이미 닫혀서
+  //    isSpeaking()이 false 입니다. 그런데 모아둔 오디오는 그대로 보내면
+  //    발화 구간 밖의 소리가 되어 서버가 통째로 버립니다.
+  //    (서버 자동 감지를 껐으므로 구간 밖 오디오는 존재하지 않는 것과 같습니다)
+  //    → "말 시작"을 열고, 오디오를 보내고, 게이트가 이미 닫혔으면 곧바로
+  //       "말 끝"까지 알려서 선생님이 반드시 대답하게 만듭니다.
+  const stillSpeaking = !!app.mic?.isSpeaking();
+  if (app.live.sendActivityStart()) app.diag.activityStart++;
+  for (const frame of frames) app.live.sendAudio(frame);
+  if (!stillSpeaking) {
+    if (app.live.sendActivityEnd()) app.diag.activityEnd++;
+  }
+}
+ 
+async function resumeLive() {
+  if (app.reconnecting || !app.inCall || !app.live) return;
+  if (app.live.state === LiveState.CONNECTING) return;
+ 
+  /* ⚠️ 백오프.
+     resumeLive() 는 마이크 오디오 프레임 핸들러에서도 불립니다 —
+     초당 수십 번입니다. 실패한 직후 곧바로 다시 부르면 토큰 발급을
+     끝없이 재시도하는 열띤 루프가 됩니다. 실제로 키가 잘못됐을 때
+     서버 로그가 400 으로 도배되고 화면은 오류 알림으로 덮였습니다.
+     실패할수록 간격을 늘리고, 설정 오류면 아예 멈춥니다.            */
+  if (app.resumeBlockedReason) return;
+  if (app.resumeBackoffUntil && Date.now() < app.resumeBackoffUntil) return;
+ 
+  // 대화 중에 하루 한도를 넘으면 여기서 멈춥니다
+  if (app.usage.isExhausted(app.profile.id)) {
+    UI.setStatus('오늘 목표를 다 채웠어요! 🎉');
+    UI.toast(`${app.profile.name}, 오늘 영어 목표 완료! 내일 또 만나요 🎉`, {
+      variant: 'success', ttlMs: 8000,
+    });
+    await endCall();
+    return;
+  }
+ 
+  app.reconnecting = true;
+  UI.setStatus('선생님을 다시 부르고 있어요...');
+ 
+  try {
+    await connectLive();
+    // 연결하는 동안 사용자가 통화를 끊었을 수 있습니다 (app.live가 null이 됨)
+    if (!app.inCall || !app.live) {
+      app.pendingFrames = [];
+      return;
+    }
+    flushPendingAudio();
+    UI.setStatus('편하게 말해 보세요.');
+    // 성공했으니 실패 기록을 지웁니다
+    app.resumeFailStreak = 0;
+    app.resumeBackoffUntil = 0;
+  } catch (err) {
+    console.error('[app] 재연결 실패', err);
+    app.resumeFailStreak = (app.resumeFailStreak || 0) + 1;
+ 
+    if (err?.permanent) {
+      /* 설정 문제입니다. 다시 시도해봐야 똑같습니다.
+         재시도를 완전히 멈추고, 원인을 그대로 보여줍니다.
+         (숫자 대신 서버가 준 안내문이 여기까지 올라옵니다) */
+      app.resumeBlockedReason = err.message;
+      UI.setStatus('설정을 확인해 주세요.');
+      UI.toast(err.message, { variant: 'error', ttlMs: 20000 });
+    } else {
+      // 일시적 문제 — 1초, 2초, 4초… 최대 30초까지 간격을 늘립니다
+      const wait = Math.min(30000, 1000 * Math.pow(2, app.resumeFailStreak - 1));
+      app.resumeBackoffUntil = Date.now() + wait;
+      UI.setStatus('연결에 문제가 있어요. 마이크 버튼을 다시 눌러주세요.');
+      // 알림은 처음 한 번만. 안 그러면 화면이 오류 알림으로 덮입니다.
+      if (app.resumeFailStreak === 1) {
+        UI.toast(`연결이 끊겼어요. 다시 시도합니다… (${err.message})`, {
+          variant: 'warn', ttlMs: 7000,
+        });
+      }
+    }
+  } finally {
+    app.reconnecting = false;
+  }
+}
+ 
+/**
+ * 사람이 아직 말하는 중일 때 선생님 음성을 붙들어 두는 시간의 상한.
+ *
+ * ⚠️ 무한정 붙들면 안 됩니다. 마이크가 어떤 이유로 계속 열려 있으면
+ *    선생님이 영영 말을 못 합니다. 그건 지금 증상보다 더 나쁩니다.
+ */
+const MAX_DEFER_MS = 4000;
+ 
+/** 붙들고 있던 선생님 음성을 순서대로 내보냅니다. */
+function flushDeferredTeacherAudio(reason) {
+  const queued = app.deferredTeacherAudio || [];
+  app.deferredTeacherAudio = [];
+  app.deferStartedAt = 0;
+  if (!queued.length) return;
+  console.info(`[app] 붙들고 있던 선생님 음성 ${queued.length}조각 재생 (${reason})`);
+  for (const pcm of queued) {
+    app.avatar?.pushAudio(pcm);
+    app.player?.push(pcm);
+  }
+}
+ 
+/**
+ * 선생님 음성 조각 도착
+ *
+ * ⚠️ 2026-08-19 — "내가 말한 게 대화창에 안 뜬다"
+ *
+ * 안전 모드(halfDuplex)에서는 선생님이 말하는 동안 마이크를 **완전히 닫습니다**
+ * (mic.js `_muted()`). 에코를 막는 확실한 방법이지만 대가가 있었습니다.
+ *
+ * 실제 코드를 돌려 잰 값입니다 (40단어 · 문장 중간에 3초 머뭇 2번):
+ *      사람이 낸 말소리         12.8초
+ *      마이크가 닫혀 사라진 것   2.2초   ← 어디에도 안 남고 폐기
+ *      쪼개진 턴                 3개
+ *
+ * 문장이 조각나면 첫 조각의 대답이 재생되고, 그 재생 때문에 마이크가 닫히고,
+ * 그동안 이어서 말한 내용이 통째로 사라집니다. 그래서 화면에는 말한 것의
+ * 일부만 뜨거나 아예 안 뜹니다.
+ *
+ * 해법: **사람이 말하는 중이면 재생하지 않고 들고 있습니다.** 말이 끝나면
+ * 그때 재생합니다. 마이크가 닫히지 않으니 말이 사라지지 않습니다.
+ * 사람끼리 대화할 때도 상대가 말을 마칠 때까지 기다립니다.
+ */
+function handleTeacherAudio(pcm16) {
+  // 요금 계산용: 받은 오디오 길이 (버리더라도 서버는 이미 만들었으므로 집계합니다)
+  app.usage.addAudioOut(app.profile.id, (pcm16.length / AUDIO.OUTPUT_SAMPLE_RATE) * 1000);
+  refreshUsageUi();
+ 
+  // 방금 끼어들었다면, 이미 날아오고 있던 조각은 재생하지 않고 버립니다.
+  // (재생하면 끼어들었는데도 선생님이 계속 말하고, duck 이 다시 걸립니다)
+  if (app.bargeGuardUntil && Date.now() < app.bargeGuardUntil) return;
+  app.bargeGuardUntil = 0;
+ 
+  /* 사람이 아직 말하는 중이면 붙들어 둡니다.
+     안전 모드일 때만입니다 — 끼어들기 모드는 마이크를 닫지 않으므로
+     말이 사라질 일이 없고, 붙들면 오히려 대화가 굼떠집니다. */
+  if (app.settings.halfDuplex && app.mic?.isUserSpeaking?.()) {
+    if (!app.deferStartedAt) app.deferStartedAt = Date.now();
+ 
+    if (Date.now() - app.deferStartedAt < MAX_DEFER_MS) {
+      (app.deferredTeacherAudio ||= []).push(pcm16);
+      return;
+    }
+    flushDeferredTeacherAudio('4초 초과 — 더 기다리지 않음');
+  }
+ 
+  // 붙들어 둔 게 있으면 순서가 어긋나지 않게 그것부터 내보냅니다.
+  if (app.deferredTeacherAudio?.length) flushDeferredTeacherAudio('사람 말이 끝남');
+ 
+  // 영상 아바타 모드면 Simli가 소리까지 내주고, 사진 모드면 우리가 재생합니다.
+  // player는 어느 쪽이든 타이밍/립싱크 추적용으로 계속 돌립니다.
+  app.avatar?.pushAudio(pcm16);
+  app.player?.push(pcm16);
+}
+ 
+/** 사용자가 끼어들었음 → 예약된 음성 전부 폐기 */
+function handleInterrupted() {
+  app.diag.interrupts++;
+  // 서버가 "멈췄다"고 확인해줬으므로, 뒤늦게 오던 조각을 버릴 이유가 없어집니다
+  app.bargeGuardUntil = 0;
+  app.player?.flush();
+  app.avatar?.interrupt();
+  UI.setTeacherSubtitle('');
+  UI.setInterruptVisible(false);
+}
+ 
+/**
+ * 사람이 말을 시작해서 선생님 말을 끊는 순간에 하는 일.
+ *
+ * 서버의 interrupted 신호를 기다리면 몇백 ms 늦습니다. 그동안
+ * 이미 받아둔 음성이 계속 재생돼서 목소리가 겹치고, player.speaking 이
+ * 살아 있는 바람에 문턱이 다시 올라가 방금 시작한 말이 잘립니다.
+ * 그래서 로컬에서 먼저 끊고, 뒤늦게 오는 조각도 잠깐 버립니다.
+ */
+/** 아바타 모드에 맞는 duck 해제 지연을 마이크에 적용합니다 */
+function applyDuckRelease(mode) {
+  const ms = COST.DUCK_RELEASE_MS?.[mode] ?? COST.DUCK_RELEASE_MS?.photo ?? 150;
+  app.mic?.setDuckReleaseMs(ms);
+}
+ 
+function beginBarge() {
+  app.bargeGuardUntil = Date.now() + COST.BARGE_GUARD_MS;
+  app.player?.flush();
+  app.avatar?.interrupt();
+  UI.setInterruptVisible(false);
+}
+ 
+/**
+ * 사용자가 ✋ 버튼으로 직접 끼어들었을 때.
+ *
+ * 소리로 끼어드는 경로(마이크 문턱 낮추기)가 실패하는 경우가 있습니다.
+ * 스피커 볼륨이 크거나, 아이 목소리가 작거나, 반이중 모드가 켜져 있을 때입니다.
+ * 이 버튼은 그 모든 경우를 무시하고 강제로 내 차례를 엽니다.
+ */
+function interruptTeacher() {
+  app.diag.interrupts++;
+ 
+  // 1) 재생 대기 중인 음성을 버리고, 뒤늦게 오는 조각도 잠시 버립니다
+  beginBarge();
+  UI.setTeacherSubtitle('');
+  UI.setKoreanSubtitle('');
+ 
+  // 2) 마이크를 즉시 엽니다.
+  //    forceSpeak()는 억제와 문턱을 풀고, 게이트가 닫혀 있었다면 열면서
+  //    onActivity('start')로 "말 시작"까지 알립니다(= 아래 3은 건너뜁니다).
+  app.mic?.setTeacherSpeaking(false, 'barge');
+  const opened = app.mic?.forceSpeak();
+ 
+  // 3) 이미 열려 있어서 forceSpeak가 아무것도 안 했다면, 서버 쪽 발화 구간이
+  //    정말로 열려 있는지 한 번 더 확인합니다. 게이트는 열려 있는데 그 사이
+  //    세션이 새로 연결됐다면 서버는 발화가 시작된 걸 모릅니다. 그러면 지금
+  //    보내는 오디오가 통째로 버려지고 선생님은 계속 혼자 말합니다.
+  //    (forceSpeak가 이미 보냈을 때 또 세면 진단 숫자의 start/end 짝이
+  //     어긋나서, 정작 진짜 어긋남을 찾을 때 못 알아봅니다)
+  if (!opened && app.live?.sendActivityStart()) app.diag.activityStart++;
+ 
+  UI.setStatus('말씀하세요. 듣고 있어요.');
+  UI.setAvatarState('listening');
+  app.avatar?.setState('listening');
+  updateDiagnostics({ force: true });
+}
+ 
+/* ═══════════════════════════════════════════════════════════════════════════
+   자막 · 대화 기록
+   ═══════════════════════════════════════════════════════════════════════════ */
+ 
+/** 비교용 정규화 — 대소문자, 문장부호, 띄어쓰기 차이는 무시합니다 */
+function normalizeForCompare(text) {
+  return String(text || '').toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
+}
+ 
+/**
+ * 두 문장이 사실상 같은 말인지.
+ * 한쪽이 다른 쪽을 통째로 품고 있으면 같은 말로 봅니다
+ * (인식 결과가 늦게 길어지는 경우가 흔합니다).
+ */
+function looksLikeSameUtterance(a, b) {
+  const x = normalizeForCompare(a);
+  const y = normalizeForCompare(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (short.length < 4) return false;
+  return long.includes(short) && short.length / long.length >= 0.6;
+}
+ 
+function handleUserText(text, final) {
+  UI.setUserEcho(text, final);
+  if (!final) return;
+ 
+  /* ── 1. 선생님 목소리가 마이크로 되돌아온 흔적인가? ──────────────────
+     이 앱의 선생님은 **일부러 아이 말을 따라 말합니다**
+     (아이: "Dog!" → 선생님: "Big dog!"). 스피커로 들으면 그 소리가 마이크로
+     되돌아가 아이가 두 번 말한 것처럼 기록됩니다.
+ 
+     ⚠️ 그렇다고 여기서 **지우지는 않습니다.**
+        지우려면 "이건 사람이 아니다"를 확신해야 하는데, 소리 크기로도
+        글자로도 확신할 수 없었습니다. 글자로 지웠더니 선생님을 따라 말한
+        아이의 연습이 사라졌고, 소리 크기로 지웠더니 조용한 아이가 사라졌습니다.
+        **아이 말을 지우는 건 어떤 경우에도 감수할 수 없는 대가입니다.**
+ 
+        그래서 세어두고 알려주기만 합니다. 원인은 안전 모드(기본값)가
+        이미 막고 있고, 끼어들기 모드를 직접 켜신 경우에만 이 경로가 열립니다.  */
+  const teacherOnAir = !!app.player?.speaking || Date.now() < app.bargeGuardUntil;
+  const onAirText = app.teacherOnAirText || app.lastTeacherLine;
+  if (teacherOnAir && !app.settings.halfDuplex &&
+      looksLikeSameUtterance(text, onAirText)) {
+    app.diag.echoDropped++;
+    updateDiagnostics({ force: true });
+    noteEchoDetected();
+    // 지우지 않고 그대로 아래로 내려갑니다
+  }
+ 
+  /* ⚠️ 합치는 조건은 아주 좁아야 합니다.
+        아이가 **일부러 같은 말을 두 번** 하는 건 이 앱에서 흔한 연습이고,
+        "I want juice" 와 "I want juice please" 는 서로 **다른 말**입니다.
+        그런 걸 합치면 아이가 한 말이 화면에서도 기록에서도 사라집니다.
+ 
+        진짜 중복은 하나의 발화에 대해 인식 결과가 두 번 확정된 경우이고,
+        그건 2.5초 안에, 글자가 똑같거나 앞부분이 그대로 이어진 형태로
+        나타납니다. 딱 그 경우만 합칩니다.                                  */
+  const prev = app.lastUserFinal;
+  const gap = prev ? Date.now() - prev.at : Infinity;
+  const a = prev ? normalizeForCompare(prev.text) : '';
+  const b = normalizeForCompare(text);
+  const isRepeat = !!prev && gap < 2500 && !!a && (a === b || b.startsWith(a) || a.startsWith(b));
+ 
+  if (isRepeat) {
+    // 더 긴 쪽(= 더 완전한 인식)으로 마지막 줄을 고쳐 씁니다.
+    const better = text.length >= prev.text.length ? text : prev.text;
+    // ⚠️ 반드시 반환값을 봐야 합니다. 마지막 줄이 선생님 줄이면 고쳐 쓸 수
+    //    없는데, 예전에는 그걸 확인하지 않고 return 해버려서 **아이 말이
+    //    화면에서도 기록에서도 통째로 사라졌습니다.**
+    if (UI.replaceLastTranscript('user', better)) {
+      app.diag.dupMerged++;
+      app.lastUserFinal = { text: better, at: Date.now() };
+      // 저장된 기록에는 손대지 않습니다. 여기서 또 저장하면 기록에 같은 말이
+      // 두 줄로 남아서, 정작 고치려던 증상이 기록 쪽에 그대로 생깁니다.
+      updateDiagnostics({ force: true });
+      setTimeout(() => UI.setUserEcho(''), 1800);
+      return;
+    }
+  }
+ 
+  UI.appendTranscript({ speaker: 'user', text, icon: app.profile?.icon });
+  app.lastUserFinal = { text, at: Date.now() };
+  void appendMessage(app.profile.id, app.sessionId, 'user', text);
+  // 다음 세션에서 "지난 이야기"로 쓸 주제 조각
+  if (text.length > 12) app.session.topics.push(text.slice(0, 60));
+  // 배운 표현을 스스로 다시 썼는지 → 간격 반복 승급
+  void checkReuse(text).catch((err) => console.warn('[app] 복습 승급 실패', err));
+  setTimeout(() => UI.setUserEcho(''), 1800);
+}
+ 
+/**
+ * 스피커 소리가 마이크로 되돌아오고 있다는 게 확인되면,
+ * 조용히 넘어가지 말고 실제로 해결해 줍니다.
+ *
+ * 세 번 잡히면 자동으로 안전 모드를 켭니다. 안전 모드에서는 선생님이
+ * 말하는 동안 마이크를 완전히 닫으므로 이 문제가 물리적으로 사라집니다.
+ * 대신 말을 끊고 들어갈 수 없게 되므로, ✋ 버튼을 안내합니다.
+ */
+function noteEchoDetected() {
+  app.echoHits = (app.echoHits || 0) + 1;
+  if (app.echoHits === 1) {
+    UI.toast('스피커 소리가 마이크로 들어가고 있어요. 이어폰을 쓰면 깨끗해집니다.', {
+      variant: 'warn', ttlMs: 8000,
+    });
+    return;
+  }
+  if (app.echoHits !== 3 || app.settings.halfDuplex) return;
+ 
+  // 끼어들기 모드를 직접 켜신 상태에서 되돌림이 계속되면 안전 모드로 돌립니다.
+  // 안전 모드에서는 선생님이 말할 때 마이크가 닫혀 이 문제가 물리적으로
+  // 사라집니다. 끼어들기는 ✋ 버튼으로 계속 가능합니다.
+  app.settings.halfDuplex = true;
+  saveSettings(app.settings);
+  app.mic?.setTeacherSpeaking(!!app.player?.speaking, 'mute');
+  UI.setInterruptVisible(!!app.player?.speaking);
+  UI.toast(
+    '선생님 목소리가 계속 되돌아와서 안전 모드로 되돌렸습니다. ' +
+    '끼어들고 싶을 땐 ✋ 버튼을 눌러주세요.',
+    { variant: 'warn', ttlMs: 10000 }
+  );
+}
+ 
+function handleTeacherText(text, final) {
+  UI.setTeacherSubtitle(text);
+  // 지금 말하고 있는 문장. 스피커 되돌림을 걸러낼 때 이 값과 비교합니다.
+  app.teacherOnAirText = text;
+  if (final) {
+    UI.appendTranscript({ speaker: 'teacher', text, icon: '👩‍🏫' });
+    void appendMessage(app.profile.id, app.sessionId, 'teacher', text);
+    app.lastTeacherLine = text;
+    UI.setTranslateAvailable(true);
+    // 새 문장이 나오면 이전 번역은 지웁니다
+    UI.setKoreanSubtitle('', false);
+ 
+    // 자동 번역은 아이에게만. 어른은 영어로 이해하는 게 학습이므로
+    // 필요할 때 "무슨 뜻이야?" 버튼을 직접 누르게 합니다.
+    // (텍스트 모델이라 요금은 호출당 0.1원 수준입니다)
+    const autoTranslate = app.settings.showKoreanSubtitle && (app.profile?.age ?? 99) <= 10;
+    if (autoTranslate) void showTranslation(text, { auto: true });
+  }
+}
+ 
+/** 선생님 말을 한국어로 풀어 자막에 보여줍니다 */
+/** 한글 글자 비율 */
+function koreanRatio(text) {
+  const letters = text.replace(/[^A-Za-z가-힣]/g, '');
+  if (!letters.length) return 0;
+  const korean = letters.replace(/[^가-힣]/g, '').length;
+  return korean / letters.length;
+}
+ 
+async function showTranslation(text, { auto = false } = {}) {
+  if (!text || !app.profile) return;
+ 
+  // 어린 단계에서는 선생님이 이미 한국어를 많이 섞어 말합니다.
+  // 그걸 또 번역하면 아무 의미 없고 요금만 나갑니다.
+  if (auto && koreanRatio(text) > 0.5) return;
+ 
+  try {
+    const { korean, keyWords } = await translate(text, app.profile.age);
+    // 그동안 선생님이 다른 말을 했으면 덮어쓰지 않습니다
+    if (app.lastTeacherLine !== text) return;
+    UI.setKoreanSubtitle(korean, true);
+ 
+    // 핵심 표현 카드는 아껴서 띄웁니다.
+    // 매 턴 띄우면 카드가 화면을 계속 덮어 아바타와 자막을 가립니다.
+    // 이미 단어장에 있는 표현이면 건너뜁니다.
+    const kw = (keyWords || [])[0];
+    if (kw?.word && !app.seenKeywords.has(kw.word.toLowerCase())) {
+      app.seenKeywords.add(kw.word.toLowerCase());
+      const entry = {
+        word: kw.word,
+        meaning_ko: kw.meaning,
+        example_en: text,
+        example_ko: korean,
+      };
+      UI.showVocabCard(entry, { canRead: currentCanRead(), onSpeak: speakWord });
+      // 화면에만 띄우고 끝내면 아이가 가장 많이 본 표현이 단어장에 안 남습니다
+      void saveVocabulary(app.profile.id, entry).catch(console.error);
+    }
+  } catch (err) {
+    console.warn('[app] 번역 실패', err);
+    UI.toast(`번역 실패: ${err.message}`, { variant: 'warn' });
+  }
+}
+ 
+function handleTurnComplete() {
+  app.diag.turns++;
+  // 턴이 끝났으면 뒤늦게 오던 조각을 더 기다릴 이유가 없습니다.
+  // (다음 턴의 첫 음성을 잘라먹지 않도록 반드시 여기서 풉니다)
+  app.bargeGuardUntil = 0;
+  updateDiagnostics({ force: true });
+  app.session.turns += 1;
+  app.usage.addTurn(app.profile.id);
+  refreshUsageUi({ force: true });
+ 
+  // 단계가 바뀌었으면 여기서 세션을 새로 엽니다.
+  // 프롬프트와 도구가 토큰에 잠겨 있어 재접속해야 새 단계가 적용됩니다.
+  // 대화 맥락은 유지되고, 아이는 잠깐 끊긴 것도 못 느낍니다.
+  if (app.pendingStageReconnect) {
+    app.pendingStageReconnect = false;
+    console.info('[app] 학습 단계 변경 → 세션을 새 단계로 다시 엽니다');
+    app.live?.disconnect({ keepContext: true })
+      .then(() => resumeLive())
+      .catch(console.error);
+  }
+}
+ 
+/** 학습자가 배운 표현을 스스로 다시 사용했는지 검사 (간격 반복 승급) */
+async function checkReuse(userText) {
+  if (!app.profile) return;
+  const haystack = ` ${userText.toLowerCase().replace(/[^a-z0-9\s']/g, ' ')} `;
+  const vocab = await listVocabulary(app.profile.id, { limit: 100 });
+  for (const item of vocab) {
+    const word = item.word.toLowerCase().trim();
+    if (word.length < 3) continue;
+    if (haystack.includes(` ${word} `)) {
+      await promoteVocabulary(app.profile.id, item.word);
+    }
+  }
+}
+ 
+/* ═══════════════════════════════════════════════════════════════════════════
+   교육 도구 처리
+ 
+   ⚠️ 반드시 동기로 즉시 반환해야 합니다.
+      Live API의 function calling은 동기라서, 응답이 늦으면 그만큼
+      선생님이 말을 못 하고 대화가 어색하게 멈춥니다.
+      화면만 먼저 그리고, 저장은 기다리지 않고 백그라운드로 넘깁니다.
+   ═══════════════════════════════════════════════════════════════════════════ */
+ 
+function handleToolCall(name, args) {
+  const canRead = currentCanRead();
+ 
+  switch (name) {
+    case 'teach_word': {
+      UI.showWordCard(args, { canRead, onSpeak: speakWord });
+      if (args.word) app.session.newWords.push(args.word);
+      // await 하지 않습니다 — 모델을 기다리게 하면 안 됩니다
+      void saveVocabulary(app.profile.id, args).catch(console.error);
+      return { ok: true, saved: true };
+    }
+ 
+    case 'show_sentence_frame': {
+      UI.showFrameCard(args, { canRead, onSpeak: speakWord });
+      // 다음 대화에서 같은 틀을 이어 연습시키기 위해 기억해 둡니다
+      if (args.frame) {
+        setCurrentFrame(app.profile.id, args.frame);
+        app.session.frames.push(args.frame);
+      }
+      return { ok: true };
+    }
+ 
+    case 'correct_sentence': {
+      UI.showCorrectionCard(args, { onSpeak: speakWord });
+      void saveCorrection(app.profile.id, args).catch(console.error);
+      return { ok: true, saved: true };
+    }
+ 
+    case 'log_progress': {
+      UI.showProgressToast(args);
+      if (args.detail_ko) app.session.highlights.push(args.detail_ko);
+      if (args.kind === 'mission_complete') {
+        app.mission.done = true;
+        UI.setMission(app.mission.text, true);
+      }
+      return { ok: true };
+    }
+ 
+    case 'suggest_stage_change': {
+      // 아이에게는 알리지 않습니다. 부모에게만 보입니다.
+      // 한 번의 판단으로 바로 바꾸지 않고, 같은 방향 제안이 쌓여야 움직입니다.
+      if (app.stage === null) return { ok: false, error: 'adult profile' };
+ 
+      const result = recordStageSuggestion(
+        app.profile.id, args.direction, args.reason_ko || ''
+      );
+      if (result.changed) {
+        app.stage = result.stage;
+        UI.setStageChip(CHILD_STAGES[result.stage]);
+        UI.announceStageChange(result.from, result.stage, CHILD_STAGES);
+        renderGameList();
+        app.session.stageChange = { from: result.from, to: result.stage, reason: args.reason_ko };
+      }
+      // ⚠️ 지금 세션의 프롬프트와 도구는 토큰에 잠겨 있어서 바로 바뀌지 않습니다.
+      //    다음 턴이 끝날 때 세션을 새로 열어야 실제로 반영됩니다.
+      if (result.changed) app.pendingStageReconnect = true;
+ 
+      // 모델에게 결과를 알려줘야 같은 제안을 반복하지 않습니다
+      return {
+        ok: true,
+        applied: result.changed,
+        current_stage: result.stage,
+        note: result.changed
+          ? 'Stage recorded. It takes effect at the next connection — ' +
+            'keep teaching normally for now.'
+          : 'Noted. Not enough evidence yet — keep teaching at the current stage.',
+      };
+    }
+ 
+    default:
+      console.warn('[app] 알 수 없는 도구 호출:', name);
+      return { ok: false, error: 'unknown tool' };
+  }
+}
+ 
+/**
+ * 단어장을 다시 그립니다.
+ * 삭제 후 목록만 지우면 상단 개수와 "아직 단어가 없어요" 안내가 어긋납니다.
+ */
+async function refreshVocabBook() {
+  if (!app.profile) return;
+  const items = await listVocabulary(app.profile.id);
+  UI.renderVocabBook(items, {
+    onSpeak: speakWord,
+    onDelete: async (word) => {
+      await deleteVocabulary(app.profile.id, word);
+      await refreshVocabBook();
+    },
+  });
+}
+ 
+/** 카드의 🔊 버튼 — 브라우저 TTS (단어 하나라 무료로 충분) */
+function speakWord(text) {
+  if (!text || !('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = 'en-US';
+  utter.rate = 0.85;
+  const voices = window.speechSynthesis.getVoices();
+  const preferred = voices.find(
+    (v) => v.lang.startsWith('en') && /Natural|Neural|Google|Samantha/i.test(v.name)
+  );
+  if (preferred) utter.voice = preferred;
+  window.speechSynthesis.speak(utter);
+}
+ 
+/* ═══════════════════════════════════════════════════════════════════════════
+   세션 상태
+   ═══════════════════════════════════════════════════════════════════════════ */
+ 
+function handleLiveState(state, info) {
+  switch (state) {
+    case LiveState.CONNECTING:
+      UI.setAvatarState('connecting');
+      break;
+ 
+    case LiveState.LIVE: {
+      /* ⚠️ 이 상태는 두 가지 뜻으로 옵니다.
+           (1) 방금 연결됐다
+           (2) 대화 중인데 알릴 말이 있다 (오류, 목소리 폴백, 안내)
+         한 턴씩 주고받는 방식으로 바뀐 뒤로는 연결이 끊기지 않아서
+         (2)가 훨씬 많습니다. 구분하지 않으면 진단창의 '연결 횟수'가 부풀어
+         정작 진짜 재연결이 몇 번 일어났는지 못 보게 됩니다. */
+      if (!app.liveAnnounced) {
+        app.liveAnnounced = true;
+        app.diag.connects++;
+        app.diag.resumed = !!app.live?.resumeHandle;
+      }
+      UI.setAvatarState('listening');
+ 
+      if (info?.message) {
+        /* ⭐ 반드시 보이게 합니다.
+             여기서 info.message 를 삼키면, 선생님 목소리가 기본 목소리로
+             바뀌어도 화면은 멀쩡해 보입니다. 그게 이 프로젝트에서 가장
+             많은 시간을 날린 실패 방식입니다 — 조용한 폴백. */
+        UI.setStatus(info.message);
+        if (info.error || info.fallback) {
+          app.diag.lastError = info.message;
+          UI.toast(info.message);
+        }
+      } else {
+        UI.setStatus(
+          app.settings.halfDuplex
+            ? '편하게 말해 보세요. 끊고 싶으면 ✋ 를 누르면 됩니다.'
+            : '편하게 말해 보세요. 선생님 말 중간에 끼어들어도 괜찮아요.'
+        );
+      }
+ 
+      updateDiagnostics({ force: true });
+      UI.setMicUi({ active: true, icon: '🎙️', label: '대화 중' });
       break;
     }
+ 
+    case LiveState.ERROR:
+      app.liveAnnounced = false;
+      app.diag.lastError = info?.message || '연결 오류';
+      updateDiagnostics({ force: true });
+      UI.setAvatarState('error');
+      UI.setStatus(info?.message || '연결 오류가 발생했어요.');
+      break;
+ 
+    case LiveState.IDLE:
+      app.liveAnnounced = false;
+      if (app.inCall) {
+        // 유휴로 끊긴 정상 상태 — 사용자에게는 "대기 중"으로만 보입니다
+        UI.setAvatarState('idle');
+        UI.setMicUi({ active: true, icon: '💤', label: '대기 중 (말하면 이어져요)' });
+      } else {
+        UI.setMicUi({ active: false, icon: '🎙️', label: '대화 시작' });
+      }
+      break;
   }
-
-  if (lower.includes("name") || lower.includes("who are you")) {
-    reply = `My name is Chloe! I'm your native English teacher. What's your name, ${enName}?`;
-    trans = `제 이름은 클로이예요! 여러분의 원어민 영어 선생님이죠. ${krName}님의 이름은 무엇인가요?`;
-    native = `I'm Chloe, nice to meet you!`;
-    adv = `My name is Chloe, I serve as your native English instructor.`;
-  } else if (matchedTopic && OFFLINE_TOPICS[matchedTopic]) {
-    const options = OFFLINE_TOPICS[matchedTopic];
-    // Repetition Prevention
-    let availableOptions = options.filter(opt => !recentRepliesBuffer.includes(opt));
-    if (availableOptions.length === 0) availableOptions = options; // fallback
-    
-    reply = availableOptions[Math.floor(Math.random() * availableOptions.length)];
-    recentRepliesBuffer.push(reply);
-    if (recentRepliesBuffer.length > 5) recentRepliesBuffer.shift();
-    
-    trans = `(오프라인 모드: ${matchedTopic} 주제 질문)`;
-    native = `Tell me more about ${matchedTopic}!`;
-    adv = `Could you elaborate on the topic of ${matchedTopic}?`;
-  } else {
-    // Contextual Follow-up or Generic fallback
-    const options = [
-      `That is really interesting, ${enName}. Tell me a bit more about it!`,
-      `Wow, I see. What do you think about that?`,
-      `Oh, really? Why is that?`,
-      `That makes sense. Can you explain more?`
-    ];
-    let availableOptions = options.filter(opt => !recentRepliesBuffer.includes(opt));
-    if (availableOptions.length === 0) availableOptions = options;
-    
-    reply = availableOptions[Math.floor(Math.random() * availableOptions.length)];
-    recentRepliesBuffer.push(reply);
-    if (recentRepliesBuffer.length > 5) recentRepliesBuffer.shift();
-
-    trans = `그것에 대해 조금 더 말씀해 주시겠어요, ${krName}님?`;
-    native = `Tell me more!`;
-    adv = `Please elaborate on your previous statement.`;
-  }
-
-  return {
-    reply,
-    translation: trans,
-    nativeUpgrade: native,
-    advancedUpgrade: adv,
-    grammarFixNote: grammarFixNote,
-    hintOptions: ["That's interesting!", "Tell me more.", "I didn't know that."]
-  };
 }
-
-function renderRoleplayModal() {
-  if (!roleplayGrid) return;
-  roleplayGrid.innerHTML = '';
-  ROLEPLAY_SCENARIOS.forEach(s => {
-    const item = document.createElement('div');
-    item.className = 'roleplay-item';
-    item.innerHTML = `
-      <div class="roleplay-title">${s.title}</div>
-      <div class="roleplay-desc">${s.desc}</div>
-    `;
-    item.addEventListener('click', () => startRoleplayScenario(s));
-    roleplayGrid.appendChild(item);
+ 
+/* ═══════════════════════════════════════════════════════════════════════════
+   유휴 감시 — 요금을 멈추는 곳
+   ═══════════════════════════════════════════════════════════════════════════ */
+ 
+function startIdleWatch() {
+  stopIdleWatch();
+  app.idleTimer = setInterval(() => {
+    if (!app.inCall || !app.live?.isLive) return;
+ 
+    // ── 하루 한도 확인 ────────────────────────────────────────────
+    // 쉬지 않고 계속 대화하면 재연결이 일어나지 않아서
+    // 연결 시점 검사만으로는 한도를 넘겨버립니다. 여기서 매번 확인합니다.
+    // (선생님이 말하는 중이어도 확인해야 하므로 아래 speaking 검사보다 앞에 둡니다)
+    if (app.profile && app.usage.isExhausted(app.profile.id)) {
+      UI.setStatus('오늘 목표를 다 채웠어요! 🎉');
+      UI.toast(`${app.profile.name}, 오늘 영어 목표 완료! 내일 또 만나요 🎉`, {
+        variant: 'success', ttlMs: 8000,
+      });
+      endCall().catch(handleFatal);
+      return;
+    }
+ 
+    // 선생님이 말하는 중이면 끊지 않습니다
+    if (app.player?.speaking) return;
+    if (app.mic && app.mic.msSinceLastSpeech() > COST.IDLE_DISCONNECT_MS) {
+      console.info('[app] 유휴 → 세션 종료 (요금 절약). 다시 말하면 이어집니다.');
+      app.live.disconnect({ keepContext: COST.RESUME_ENABLED }).catch(console.error);
+      UI.setStatus('잠시 쉬는 중이에요. 말을 걸면 바로 이어집니다.');
+    }
+  }, 3000);
+}
+ 
+function stopIdleWatch() {
+  clearInterval(app.idleTimer);
+  app.idleTimer = null;
+}
+ 
+/* ═══════════════════════════════════════════════════════════════════════════
+   미션 / 사용량
+   ═══════════════════════════════════════════════════════════════════════════ */
+ 
+function pickMission(profile) {
+  // 아이는 단계로, 어른은 레벨로 고릅니다
+  const level = app.stage !== null
+    ? (app.stage <= 1 ? 'starter' : app.stage <= 3 ? 'beginner' : 'intermediate')
+    : 'intermediate';
+  const pool = DAILY_MISSIONS[level];
+  // 날짜 + 프로필로 정해지므로 하루 동안 같은 미션이 유지됩니다
+  const seed = new Date().getDate() + profile.id.length;
+  app.mission = { text: pool[seed % pool.length], done: false };
+  UI.setMission(app.mission.text, false);
+}
+ 
+let lastUsageUiAt = 0;
+ 
+let lastDiagAt = 0;
+ 
+function updateDiagnostics({ force = false } = {}) {
+  // ⚠️ 이 값은 진단 화면을 켜지 않아도 채워야 합니다.
+  //    내보내기 파일은 app.diag 를 그대로 읽는데, 여기서 먼저 return 해버리면
+  //    에코를 확인하려고 만든 리포트가 항상 "누출 0.0000 (좋음)"이라고
+  //    거짓말을 합니다.
+  app.diag.echoFloor = app.mic?.gate?.echoFloor ?? app.diag.echoFloor ?? 0;
+  if (!app.settings.showDiagnostics) return;
+  // 오디오 프레임마다 innerHTML을 다시 그리면 오래된 아이패드에서
+  // 립싱크 애니메이션과 경쟁합니다. 초당 4번이면 충분합니다.
+  const now = Date.now();
+  if (!force && now - lastDiagAt < 250) return;
+  lastDiagAt = now;
+ 
+  UI.setDiagnostics({
+    ...app.diag,
+    gateState: app.mic?.gate?.state ?? '-',
+    noiseFloor: app.mic?.gate?.noiseFloor ?? 0,
+    onset: app.mic?.gate?.onsetThreshold?.() ?? 0,
+    live: !!app.live?.isLive,
   });
 }
-
-function startRoleplayScenario(scenario) {
-  activeRoleplay = scenario;
-  if (roleplayModal) roleplayModal.classList.add('hidden');
-
-  const startMsg = {
-    sender: 'ai',
-    content: `Hi! Ready for our ${scenario.title}? What's up?`,
-    translation: `안녕! ${scenario.title} 역할극 준비됐어! 무슨 일이야?`,
-    timestamp: new Date().toISOString()
+ 
+function refreshUsageUi({ force = false } = {}) {
+  if (!app.profile) return;
+  // 오디오 조각이 초당 수십 번 들어오므로 그대로 두면 매번 레이아웃이 다시 계산됩니다.
+  // 오래된 아이패드에서는 립싱크 애니메이션과 경쟁합니다.
+  const now = Date.now();
+  if (!force && now - lastUsageUiAt < 1000) return;
+  lastUsageUiAt = now;
+ 
+  UI.setUsage({
+    usedMin: app.usage.todayMinutes(app.profile.id),
+    limitMin: app.usage.dailyLimit(app.profile.id),
+    krw: app.usage.estimateKrw(app.profile.id),
+  });
+}
+ 
+/* ═══════════════════════════════════════════════════════════════════════════
+   입력 / 버튼 배선
+   ═══════════════════════════════════════════════════════════════════════════ */
+ 
+/**
+ * 세션이 실제로 쓸 수 있는 상태(LIVE)가 될 때까지 기다립니다.
+ *
+ * resumeLive()는 이미 재연결이 진행 중이면 즉시 반환합니다. 그래서
+ * resumeLive().then(...) 만으로는 아직 연결이 안 된 상태에서 전송을 시도해
+ * 메시지가 조용히 사라집니다.
+ */
+function waitForLive(timeoutMs = 8000) {
+  if (app.live?.isLive) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      if (app.live?.isLive) {
+        clearInterval(timer);
+        resolve(true);
+      } else if (!app.inCall || Date.now() - startedAt > timeoutMs) {
+        clearInterval(timer);
+        resolve(false);
+      }
+    }, 120);
+  });
+}
+ 
+function sendTextToTeacher(text, { echo = true } = {}) {
+  if (!text?.trim() || !app.inCall) return;
+ 
+  // 말하던 중에 타이핑했다면, 음성 발화를 먼저 정상적으로 마무리합니다.
+  // 안 그러면 마이크는 계속 열린 줄 알고 오디오를 흘려보내는데 그 오디오는
+  // 발화 구간 밖이라 서버가 통째로 버립니다 — 하던 말이 사라집니다.
+  if (app.mic?.closeActivity()) app.diag.activityEnd++;
+ 
+  if (echo) {
+    UI.appendTranscript({ speaker: 'user', text, icon: app.profile?.icon });
+    // 타이핑한 문장은 "방금 확정된 내 말"로 두지 않습니다.
+    // 그래야 뒤늦게 도착한 음성 인식 결과가 이 줄을 덮어쓰지 않습니다.
+    app.lastUserFinal = null;
+    void appendMessage(app.profile.id, app.sessionId, 'user', text);
+  }
+ 
+  if (app.live?.isLive) {
+    app.live.sendText(text);
+    return;
+  }
+ 
+  void resumeLive()
+    .then(() => waitForLive())
+    .then((ready) => {
+      if (ready) {
+        app.live.sendText(text);
+      } else {
+        UI.toast('연결이 아직 준비되지 않아 메시지를 보내지 못했어요. 다시 시도해 주세요.', {
+          variant: 'warn', ttlMs: 6000,
+        });
+      }
+    });
+}
+ 
+function wireGlobalControls() {
+  const $ = (id) => document.getElementById(id);
+ 
+  // 통화 종료 / 프로필 전환
+  $('back-button')?.addEventListener('click', () => endCall().catch(handleFatal));
+ 
+  // 마이크 버튼: 통화 중 일시정지 토글
+  $('mic-button')?.addEventListener('click', () => {
+    if (!app.inCall) return;
+    if (app.live?.isLive) {
+      app.live.disconnect({ keepContext: true }).catch(console.error);
+      UI.setStatus('일시정지했어요. 버튼을 누르거나 말을 걸면 이어집니다.');
+    } else {
+      void resumeLive();
+    }
+  });
+ 
+  // ✋ 끼어들기: 선생님 말을 즉시 끊고 내 차례로 넘어옵니다.
+  //    목소리로 끼어드는 게 잘 안 될 때를 위한 확실한 탈출구입니다.
+  $('interrupt-button')?.addEventListener('click', () => {
+    if (!app.inCall) return;
+    interruptTeacher();
+  });
+ 
+  // 텍스트로 말 걸기 (조용한 곳 / 발음이 잘 안 잡힐 때)
+  const send = () => {
+    const input = $('text-input');
+    const text = input?.value?.trim();
+    if (!text) return;
+    sendTextToTeacher(text);
+    input.value = '';
   };
-
-  chatHistories[activeProfile.id].push(startMsg);
-  saveHistories();
-  renderMessages();
-
-  updateVideoOverlaySubtitles(startMsg.content, startMsg.translation);
-  speakText(startMsg.content);
+  $('send-button')?.addEventListener('click', send);
+  $('text-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') send();
+  });
+ 
+  // 번역 ("무슨 뜻이야?")
+  $('translate-button')?.addEventListener('click', () => {
+    if (app.lastTeacherLine) void showTranslation(app.lastTeacherLine);
+  });
+ 
+  // 단어장
+  $('vocab-button')?.addEventListener('click', async () => {
+    if (!app.profile) return;
+    try {
+      UI.clearQuiz();
+      await refreshVocabBook();
+      UI.openModal('vocab-modal');
+    } catch (err) {
+      console.error('[app] 단어장 열기 실패', err);
+      UI.toast(`단어장을 열지 못했어요: ${err.message}`, { variant: 'error', ttlMs: 7000 });
+    }
+  });
+ 
+  // 복습 퀴즈 — 텍스트 모델이라 음성 대비 요금이 거의 0입니다
+  $('quiz-button')?.addEventListener('click', async (e) => {
+    if (!app.profile) return;
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = '문제를 만들고 있어요...';
+    try {
+      // 복습 시점이 된 단어를 우선으로, 없으면 최근 배운 단어로
+      const due = await listDueVocabulary(app.profile.id, 8);
+      const pool = due.length
+        ? due
+        : (await listVocabulary(app.profile.id, { limit: 8 }));
+      const words = pool.map((v) => v.word);
+ 
+      if (!words.length) {
+        UI.toast('아직 모은 단어가 없어요. 먼저 대화를 해보세요!', { variant: 'warn' });
+        return;
+      }
+      const questions = await makeQuiz(words, app.profile.age);
+      UI.renderQuiz(questions, { onSpeak: speakWord });
+    } catch (err) {
+      UI.toast(`퀴즈 생성 실패: ${err.message}`, { variant: 'error', ttlMs: 7000 });
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '📝 복습 퀴즈 풀기 (거의 무료)';
+    }
+  });
+  $('vocab-close')?.addEventListener('click', () => UI.closeModal('vocab-modal'));
+ 
+  // 리포트
+  $('report-button')?.addEventListener('click', async () => {
+    if (!app.profile) return;
+    try {
+    const [vocab, due, stats] = await Promise.all([
+      listVocabulary(app.profile.id),
+      listDueVocabulary(app.profile.id, 100),
+      errorTypeStats(app.profile.id),
+    ]);
+    UI.renderReport({
+      profile: app.profile,
+      stageInfo: app.stage !== null ? getStageInfo(app.profile.id) : null,
+      stages: CHILD_STAGES,
+      todayMinutes: app.usage.todayMinutes(app.profile.id),
+      limitMinutes: app.usage.dailyLimit(app.profile.id),
+      turns: app.session.turns,
+      vocabTotal: vocab.length,
+      dueCount: due.length,
+      errorStats: stats,
+      recentDays: app.usage.recentDays(app.profile.id, 7),
+      highlights: app.session.highlights,
+      estimatedKrw: app.usage.estimateKrw(app.profile.id),
+      monthKrw: app.usage.estimateMonthKrw(),
+    });
+    UI.openModal('report-modal');
+    } catch (err) {
+      console.error('[app] 리포트 열기 실패', err);
+      UI.toast(`리포트를 열지 못했어요: ${err.message}`, { variant: 'error', ttlMs: 7000 });
+    }
+  });
+  $('report-close')?.addEventListener('click', () => UI.closeModal('report-modal'));
+ 
+  // 지난 대화 보기
+  $('history-button')?.addEventListener('click', async () => {
+    if (!app.profile) return;
+    try {
+      const convos = await listRecentConversations(app.profile.id, 10);
+      UI.renderConversations(convos, { profileName: app.profile.name });
+      UI.openModal('history-modal');
+    } catch (err) {
+      console.error('[app] 대화 기록 열기 실패', err);
+      UI.toast(`대화 기록을 열지 못했어요: ${err.message}`, { variant: 'error', ttlMs: 7000 });
+    }
+  });
+  $('history-close')?.addEventListener('click', () => UI.closeModal('history-modal'));
+ 
+  // 대화 + 진단 정보를 파일로 내보내기 (문제 해결용)
+  $('export-button')?.addEventListener('click', async (e) => {
+    if (!app.profile) return;
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = '만드는 중...';
+    try {
+      const text = await buildReportText({
+        profile: app.profile,
+        diag: app.diag,
+        settings: app.settings,
+      });
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '');
+      downloadText(`우리집영어_${app.profile.name}_${stamp}.txt`, text);
+ 
+      const copied = await copyText(text);
+      UI.toast(
+        copied
+          ? '파일로 저장했고 클립보드에도 복사했어요. 그대로 붙여넣어 보내주세요.'
+          : '파일로 저장했어요. 그 파일을 보내주세요.',
+        { variant: 'success', ttlMs: 8000 }
+      );
+    } catch (err) {
+      console.error('[app] 내보내기 실패', err);
+      UI.toast(`내보내기 실패: ${err.message}`, { variant: 'error', ttlMs: 7000 });
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+ 
+  // 롤플레이
+  $('roleplay-button')?.addEventListener('click', () => UI.openModal('roleplay-modal'));
+  $('roleplay-close')?.addEventListener('click', () => UI.closeModal('roleplay-modal'));
+ 
+  // 설정
+  $('settings-button')?.addEventListener('click', () => {
+    syncSettingsUi();
+    UI.openModal('settings-modal');
+  });
+  $('settings-close')?.addEventListener('click', () => UI.closeModal('settings-modal'));
+ 
+  $('setting-half-duplex')?.addEventListener('change', (e) => {
+    app.settings.halfDuplex = e.target.checked;
+    // 사용자가 직접 고른 값이라는 표시. 이게 있으면 나중에 기본값을 또 바꿔도
+    // 자동 보정이 이 선택을 지우지 않습니다.
+    app.settings.halfDuplexUserSet = true;
+    saveSettings(app.settings);
+    // 모드를 바꾸면 지금 상태를 곧바로 다시 적용합니다.
+    // (안 그러면 선생님이 말하는 중에 끈 경우 마이크가 닫힌 채로 남습니다)
+    const speaking = !!app.player?.speaking;
+    app.mic?.setTeacherSpeaking(speaking, e.target.checked ? 'mute' : 'barge');
+    UI.setInterruptVisible(speaking);
+    UI.toast(
+      e.target.checked
+        ? '안전 모드: 말이 겹치지 않습니다. 끼어들 땐 ✋ 를 누르세요.'
+        : '끼어들기 모드: 목소리로 끊을 수 있습니다. 이어폰을 꼭 쓰세요.',
+      { variant: 'info', ttlMs: 6000 }
+    );
+  });
+ 
+  $('setting-diagnostics')?.addEventListener('change', (e) => {
+    app.settings.showDiagnostics = e.target.checked;
+    saveSettings(app.settings);
+    if (e.target.checked) updateDiagnostics();
+    else UI.hideDiagnostics();
+  });
+ 
+  $('setting-korean-sub')?.addEventListener('change', (e) => {
+    app.settings.showKoreanSubtitle = e.target.checked;
+    saveSettings(app.settings);
+    if (!e.target.checked) UI.setKoreanSubtitle('', false);
+  });
+ 
+  $('setting-can-read')?.addEventListener('change', (e) => {
+    if (!app.profile) return;
+    const raw = e.target.value;
+    const value = raw === 'true' ? true : raw === 'false' ? false : 'partial';
+    app.settings.canRead = { ...(app.settings.canRead || {}), [app.profile.id]: value };
+    saveSettings(app.settings);
+    UI.toast(
+      value === false
+        ? '카드를 그림과 소리 중심으로 보여줍니다.'
+        : value === 'partial'
+          ? '쉬운 단어는 글자로, 나머지는 소리로 알려줍니다.'
+          : '카드에 영어 글자를 함께 보여줍니다.',
+      { variant: 'info' }
+    );
+  });
+ 
+  $('setting-avatar-mode')?.addEventListener('change', async (e) => {
+    const mode = e.target.value;
+    app.settings.avatarMode = mode;
+    // 직접 고르셨다는 표시. 다음에 기본값이 또 바뀌어도 이 선택은 유지됩니다.
+    app.settings.avatarModeUserSet = true;
+    saveSettings(app.settings);
+    if (app.avatar) {
+      UI.toast(
+        mode === AVATAR_MODE.VIDEO
+          ? '실사 영상 아바타로 전환합니다. (크레딧이 소모됩니다)'
+          : mode === AVATAR_MODE.THREE
+            ? '3D 아바타로 전환합니다. (무료)'
+            : '사진 아바타로 전환합니다. (무료)',
+        { variant: 'info' }
+      );
+      await app.avatar.mount(mode);
+    }
+    syncSettingsUi();
+  });
+ 
+  /* 3D 아바타 얼굴 주소.
+     잘못된 주소를 넣으면 얼굴이 통째로 안 뜨므로, 저장 전에 형식을 검사하고
+     morphTargets 파라미터가 빠졌으면 붙여줍니다. 이게 빠지면 모델은 뜨는데
+     입과 눈이 전혀 안 움직여서 "고장난 것처럼" 보입니다. */
+  $('setting-avatar-url')?.addEventListener('change', async (e) => {
+    const raw = (e.target.value || '').trim();
+    if (!raw) {
+      app.settings.avatarModelUrl = '';
+      saveSettings(app.settings);
+      UI.toast('기본 선생님 얼굴로 되돌립니다.', { variant: 'info' });
+    } else {
+      const { normalizeAvatarUrl } = await import('./src/avatar3d.js');
+      const normalized = normalizeAvatarUrl(raw);
+      if (!normalized) {
+        UI.toast('주소 형식이 올바르지 않습니다. https:// 로 시작하고 .glb 로 끝나야 해요.', {
+          variant: 'warn', ttlMs: 7000,
+        });
+        e.target.value = app.settings.avatarModelUrl || '';
+        return;
+      }
+      app.settings.avatarModelUrl = normalized;
+      saveSettings(app.settings);
+      e.target.value = normalized;
+      UI.toast('새 얼굴을 불러옵니다...', { variant: 'info' });
+    }
+    if (app.avatar && app.settings.avatarMode === AVATAR_MODE.THREE) {
+      app.avatar.opts.avatarModelUrl = app.settings.avatarModelUrl;
+      await app.avatar.mount(AVATAR_MODE.THREE);
+    }
+  });
+ 
+  // 탭을 벗어나면 요금이 새지 않게 정리하고, 돌아오면 오디오를 되살립니다
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      // 마이크 자체를 억제합니다.
+      // 프레임을 소비하는 쪽에서만 버리면 전송량 집계는 계속 올라가서,
+      // 실제로는 쓰지 않은 시간이 하루 한도를 갉아먹습니다.
+      // ⚠️ setSuppressed()가 아니라 setPageHidden()이어야 합니다.
+      //    둘이 같은 변수였을 때는, 탭을 가린 뒤 남은 음성이 다 재생되면
+      //    onSpeakingChange(false)가 억제를 풀어버려서 보이지도 않는 탭이
+      //    생활소음을 계속 집계했습니다.
+      app.mic?.setPageHidden(true);
+      if (app.live?.isLive) {
+        app.live.disconnect({ keepContext: true }).catch(console.error);
+        UI.setStatus('다른 화면으로 이동해서 잠시 멈췄어요.');
+      }
+      return;
+    }
+ 
+    // 돌아왔을 때: iOS는 백그라운드에서 AudioContext를 suspended로 바꿔놓고
+    // 자동으로 재개해주지 않습니다. 그러면 마이크가 죽은 채로 남습니다.
+    if (app.inCall) {
+      // 탭 숨김을 풀고, 지금 상태를 현재 모드로 다시 적용합니다.
+      // (안전 모드 + 선생님이 말하는 중이면 닫힌 채로 유지되고,
+      //  끼어들기 모드면 열린 채 문턱만 높아집니다)
+      app.mic?.setPageHidden(false);
+      app.mic?.setTeacherSpeaking(
+        !!app.player?.speaking,
+        app.settings.halfDuplex ? 'mute' : 'barge'
+      );
+      void Promise.all([app.mic?.resume(), app.player?.resume()]).then(() => {
+        UI.setStatus('돌아왔어요! 말을 걸면 대화가 이어집니다.');
+      });
+    }
+  });
+ 
+  window.addEventListener('pagehide', () => {
+    app.usage.flush();
+    app.live?.disconnect({ keepContext: false }).catch(() => {});
+  });
 }
-
-function setupEventListeners() {
-  if (backToProfilesBtn) {
-    backToProfilesBtn.addEventListener('click', () => {
-      renderProfiles();
-      if (chatSection) chatSection.classList.remove('active');
-      if (profileSection) profileSection.classList.add('active');
+ 
+function syncSettingsUi() {
+  const $ = (id) => document.getElementById(id);
+  if ($('setting-half-duplex')) $('setting-half-duplex').checked = !!app.settings.halfDuplex;
+  if ($('setting-korean-sub')) $('setting-korean-sub').checked = !!app.settings.showKoreanSubtitle;
+  if ($('setting-diagnostics')) $('setting-diagnostics').checked = !!app.settings.showDiagnostics;
+  if ($('setting-avatar-mode')) $('setting-avatar-mode').value = app.settings.avatarMode;
+  if ($('setting-avatar-url')) $('setting-avatar-url').value = app.settings.avatarModelUrl || '';
+  // 얼굴 주소 칸은 3D 모드일 때만 의미가 있습니다
+  const urlRow = $('avatar-url-setting');
+  if (urlRow) urlRow.style.display = app.settings.avatarMode === AVATAR_MODE.THREE ? '' : 'none';
+ 
+  // 아이 프로필일 때만 학습 단계와 읽기 여부를 보여줍니다
+  const isChild = app.stage !== null && app.profile;
+  const readRow = $('setting-can-read')?.closest('.setting-row');
+  if (readRow) readRow.style.display = isChild ? '' : 'none';
+ 
+  if (isChild) {
+    const info = getStageInfo(app.profile.id);
+    UI.renderStageLadder(CHILD_STAGES, {
+      current: info.stage,
+      history: info.history,
+      onPick: (stageId) => {
+        if (stageId === app.stage) return;
+        const from = app.stage;
+        setStage(app.profile.id, stageId);
+        app.stage = stageId;
+        UI.setStageChip(CHILD_STAGES[stageId]);
+        renderGameList();
+        UI.toast(
+          `학습 단계를 "${CHILD_STAGES[stageId].name}" 로 바꿨어요. ` +
+          '다음 대화부터 적용됩니다.',
+          { variant: 'success', ttlMs: 6000 }
+        );
+        void from;
+        syncSettingsUi();
+      },
     });
-  }
-
-  if (sendBtn) sendBtn.addEventListener('click', handleSendMessage);
-  if (giantMicBtn) giantMicBtn.addEventListener('click', toggleListening);
-  if (aiHumanStage) aiHumanStage.addEventListener('click', toggleListening);
-  if (deckBtn) deckBtn.addEventListener('click', () => { if (deckModal) deckModal.classList.remove('hidden'); });
-
-  if (hintToggleBtn) {
-    hintToggleBtn.addEventListener('click', () => {
-      if (speechKrSub) {
-        speechKrSub.style.display = speechKrSub.style.display === 'none' ? 'block' : 'none';
-      }
-    });
-  }
-
-  const clearChatBtn = document.getElementById('clear-chat-btn');
-  if (clearChatBtn) {
-    clearChatBtn.addEventListener('click', () => {
-      if (activeProfile && confirm('대화 기록을 초기화할까요?')) {
-        chatHistories[activeProfile.id] = [];
-        saveHistories();
-        renderMessages();
-        if (lingoStatusTag) lingoStatusTag.innerText = "🗑️ 대화 기록이 초기화되었습니다. 새로운 대화를 시작하세요!";
-      }
-    });
-  }
-
-  if (roleplayBtn) {
-    roleplayBtn.addEventListener('click', () => {
-      if (roleplayModal) roleplayModal.classList.remove('hidden');
-    });
-  }
-
-  if (closeRoleplayBtn) {
-    closeRoleplayBtn.addEventListener('click', () => {
-      if (roleplayModal) roleplayModal.classList.add('hidden');
-    });
-  }
-
-  if (closeDeckBtn) {
-    closeDeckBtn.addEventListener('click', () => {
-      if (deckModal) deckModal.classList.add('hidden');
-    });
-  }
-
-  if (chatInput) {
-    chatInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') handleSendMessage();
-    });
-    chatInput.addEventListener('focus', () => {
-      if (speechPauseTimer) {
-        clearTimeout(speechPauseTimer);
-        console.log("🎤 Edit mode: Auto-send paused.");
-        if (lingoStatusTag) lingoStatusTag.innerText = "✍️ 텍스트를 직접 수정하고 엔터를 누르세요!";
-      }
-    });
-  }
-
-  if (settingsBtn) {
-    settingsBtn.addEventListener('click', () => {
-      if (settingsModal) settingsModal.classList.remove('hidden');
-    });
-  }
-
-  if (closeSettingsBtn) {
-    closeSettingsBtn.addEventListener('click', () => {
-      if (settingsModal) settingsModal.classList.add('hidden');
-    });
-  }
-
-  if (saveSettingsBtn) {
-    saveSettingsBtn.addEventListener('click', () => {
-      if (geminiKeyInput) userGeminiApiKey = geminiKeyInput.value.trim();
-      localStorage.setItem('lingo_gemini_api_key', userGeminiApiKey);
-      alert('설정이 성공적으로 저장되었습니다! 이제 Gemini AI가 100% 똑똑하게 대화합니다.');
-      if (settingsModal) settingsModal.classList.add('hidden');
-    });
-  }
-
-  if (reportBtn) {
-    reportBtn.addEventListener('click', openReportModal);
-  }
-
-  if (closeReportBtn) {
-    closeReportBtn.addEventListener('click', () => {
-      if (reportModal) reportModal.classList.add('hidden');
-    });
+    if ($('setting-can-read')) {
+      $('setting-can-read').value = String(currentCanRead());
+    }
+  } else {
+    UI.renderStageLadder(CHILD_STAGES, { current: null });
   }
 }
-
-document.addEventListener('DOMContentLoaded', initApp);
+ 
+/** 이 아이가 영어 글자를 읽는지 (설정에서 바꾼 값 우선) */
+function currentCanRead() {
+  if (!app.profile) return true;
+  const override = app.settings.canRead?.[app.profile.id];
+  return override !== undefined ? override : (app.profile.canRead ?? true);
+}
+ 
+function handleFatal(err) {
+  console.error('[app] 치명적 오류', err);
+  UI.setAvatarState('error');
+  UI.setStatus(err?.message || '알 수 없는 오류가 발생했어요.');
+  UI.toast(err?.message || '오류가 발생했습니다.', { variant: 'error', ttlMs: 9000 });
+}
+ 
+/* ═══════════════════════════════════════════════════════════════════════════ */
+ 
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
+}
+ 
+ 
